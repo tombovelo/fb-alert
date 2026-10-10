@@ -1,0 +1,191 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  EXPIRED
+  CANCELLED
+}
+
+enum SourceType {
+  PAGE
+  GROUP
+  MARKETPLACE
+  FEED
+}
+
+enum SourceStatus {
+  ACTIVE
+  PAUSED
+  ERROR
+}
+
+enum NotificationChannel {
+  WEB
+  PUSH
+  EMAIL
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+model User {
+  id                 String             @id @default(uuid())
+  email              String             @unique
+  passwordHash       String
+  apiKey             String             @unique @default(uuid())
+  role               Role               @default(USER)
+  subscriptionStatus SubscriptionStatus @default(TRIAL)
+  pushToken          String?
+  aiEnabled          Boolean             @default(true)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  monitors     UserMonitor[]
+  notifications Notification[]
+  favorites    Favorite[]
+}
+
+model Source {
+  id                  String       @id @default(uuid())
+  url                 String       @unique
+  type                SourceType
+  name                String?
+  checkIntervalMinutes Int         @default(5)
+  lastScrapedAt       DateTime?
+  lastScrapeOrigin    String?
+  lastScrapeDurationMs Int?
+  status              SourceStatus @default(ACTIVE)
+  consecutiveErrors   Int          @default(0)
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+
+  monitors       UserMonitor[]
+  processedPosts ProcessedPost[]
+}
+
+model UserMonitor {
+  id               String   @id @default(uuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourceId         String
+  source           Source   @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  keywords         String[]
+  negativeKeywords String[]
+  minPrice         Float?
+  maxPrice         Float?
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  matchedPosts  MatchedPost[]
+  postAnalyses  PostAnalysis[]
+
+  @@unique([userId, sourceId])
+  @@index([userId])
+  @@index([sourceId])
+}
+
+model ProcessedPost {
+  id             String    @id @default(uuid())
+  facebookPostId String    @unique
+  sourceId       String
+  source         Source    @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  url            String?
+  author         String?
+  title          String?
+  imageUrl       String?
+  origin         String?
+  rawContent     String    @db.Text
+  publishedAt    DateTime?
+  extractedPrice Float?
+  aiSummary      String?   @db.Text
+  createdAt      DateTime  @default(now())
+
+  matchedPosts  MatchedPost[]
+  postAnalyses  PostAnalysis[]
+  favorites     Favorite[]
+
+  @@index([sourceId, createdAt])
+}
+
+model Favorite {
+  id        String        @id @default(uuid())
+  userId    String
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  postId    String
+  post      ProcessedPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  createdAt DateTime      @default(now())
+
+  @@unique([userId, postId])
+  @@index([userId])
+}
+
+model PostAnalysis {
+  id              String        @id @default(uuid())
+  processedPostId String
+  processedPost   ProcessedPost @relation(fields: [processedPostId], references: [id], onDelete: Cascade)
+  userMonitorId   String
+  userMonitor     UserMonitor   @relation(fields: [userMonitorId], references: [id], onDelete: Cascade)
+  isMatch         Boolean
+  extractedPrice  Float?
+  summary         String?       @db.Text
+  confidence      Float?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@unique([processedPostId, userMonitorId])
+  @@index([userMonitorId])
+}
+
+model MatchedPost {
+  id             String       @id @default(uuid())
+  processedPostId String
+  processedPost  ProcessedPost @relation(fields: [processedPostId], references: [id], onDelete: Cascade)
+  userMonitorId  String
+  userMonitor    UserMonitor  @relation(fields: [userMonitorId], references: [id], onDelete: Cascade)
+  confidence     Float?
+  createdAt      DateTime     @default(now())
+
+  notifications Notification[]
+
+  @@unique([processedPostId, userMonitorId])
+  @@index([userMonitorId])
+}
+
+model Notification {
+  id            String              @id @default(uuid())
+  userId        String
+  user          User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  matchedPostId String?
+  matchedPost   MatchedPost?        @relation(fields: [matchedPostId], references: [id], onDelete: SetNull)
+  channel       NotificationChannel
+  status        NotificationStatus  @default(PENDING)
+  title         String
+  body          String              @db.Text
+  sentAt        DateTime?
+  createdAt     DateTime            @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model FacebookEntityName {
+  url        String   @id
+  name       String   @default("")
+  resolvedAt DateTime @default(now())
+}

@@ -1,0 +1,25 @@
+[Unit]
+Description=FB-Alert API (NestJS)
+After=network-online.target postgresql.service redis-server.service
+Wants=network-online.target
+Requires=postgresql.service redis-server.service
+
+[Service]
+Type=simple
+User=fbalert
+Group=fbalert
+WorkingDirectory=/opt/fb-alert/backend
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node dist/main
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# journalctl -u fb-alert-backend -f
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=fb-alert
+
+[Install]
+WantedBy=multi-user.target
