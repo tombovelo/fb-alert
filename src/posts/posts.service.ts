@@ -22,7 +22,10 @@ export class PostsService {
       {
         source: {
           monitors: { some: { userId: user.id } },
-          type: { not: 'MARKETPLACE' },
+          // Les non-admin ne voient pas le Fil (FEED) dans News.
+          ...(user.role === 'ADMIN'
+            ? { type: { not: 'MARKETPLACE' } }
+            : { type: { notIn: ['MARKETPLACE', 'FEED'] } }),
         },
       },
       // Publications « complètes » : auteur, texte et date de publication présents.

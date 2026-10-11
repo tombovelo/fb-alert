@@ -76,8 +76,21 @@ const GROUPED_NUMBER_RE = /(\b\d{1,3}(?:[ .\u00A0,]\d{3})+(?:[.,]\d{1,2})?\b)/;
 
 const ANTI_XSS_PREFIX = 'for (;;);';
 
+/**
+ * Liens jamais retenus comme publication : notifications, messages, profils.
+ * `profile.php` n'exclut que les liens de profil purs — les permaliens d'une
+ * page à identifiant numérique (`profile.php?id=X&story_fbid=Y`) sont gardés.
+ */
 const EXCLUDED_URL_RE =
-  /\/notifications\/|\/login|\/checkpoint|\/messages\/|\/events\/birthdays|\/friends\/|profile\.php|[?&]notif_id=|[?&]notif_t=|[?&]ref=notif|l\.facebook\.com\/l\.php/i;
+  /\/notifications\/|\/login|\/checkpoint|\/messages\/|\/events\/birthdays|\/friends\/|[?&]notif_id=|[?&]notif_t=|[?&]ref=notif|l\.facebook\.com\/l\.php/i;
+
+const PROFILE_LINK_RE = /profile\.php/i;
+const POST_PERMALINK_RE = /story_fbid=|\/posts\//i;
+
+function isExcludedUrl(url: string): boolean {
+  if (EXCLUDED_URL_RE.test(url)) return true;
+  return PROFILE_LINK_RE.test(url) && !POST_PERMALINK_RE.test(url);
+}
 
 const NOTIFICATION_TEXT_RE =
   /a mentionné votre nom|a également commenté|a commenté (?:votre|ce)|c’est l’anniversaire|c'est l'anniversaire|nouveau j’aime|nouveau j'aime|a aimé votre commentaire|a répondu à votre/i;
@@ -357,7 +370,7 @@ function walkCandidates(
 
 function buildCandidate(obj: Record<string, unknown>): ScrapedCandidate | null {
   const url = firstUrl(obj);
-  if (url && EXCLUDED_URL_RE.test(url)) return null;
+  if (url && isExcludedUrl(url)) return null;
   if (isCommentNode(obj)) return null;
 
   const facebookPostId = normalizePostId(

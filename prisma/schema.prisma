@@ -45,20 +45,38 @@ enum NotificationStatus {
 }
 
 model User {
-  id                 String             @id @default(uuid())
-  email              String             @unique
-  passwordHash       String
-  apiKey             String             @unique @default(uuid())
-  role               Role               @default(USER)
-  subscriptionStatus SubscriptionStatus @default(TRIAL)
-  pushToken          String?
-  aiEnabled          Boolean             @default(true)
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
+  id                    String             @id @default(uuid())
+  email                 String             @unique
+  passwordHash          String
+  apiKey                String             @unique @default(uuid())
+  role                  Role               @default(USER)
+  subscriptionStatus    SubscriptionStatus @default(TRIAL)
+  subscriptionExpiresAt DateTime?
+  subscriptionMonths    Int?
+  pushToken             String?
+  aiEnabled             Boolean            @default(true)
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
 
-  monitors     UserMonitor[]
-  notifications Notification[]
-  favorites    Favorite[]
+  monitors             UserMonitor[]
+  notifications        Notification[]
+  favorites            Favorite[]
+  subscriptionRequest  SubscriptionRequest?
+}
+
+model AppSetting {
+  key   String @id
+  value String
+}
+
+model SubscriptionRequest {
+  id               String   @id @default(uuid())
+  userId           String   @unique
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  months           Int
+  paymentReference String
+  senderPhone      String
+  createdAt        DateTime @default(now())
 }
 
 model Source {

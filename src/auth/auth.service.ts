@@ -21,6 +21,7 @@ export class AuthService {
       data: {
         email: dto.email.toLowerCase(),
         passwordHash: await bcrypt.hash(dto.password, 10),
+        aiEnabled: false,
       },
     });
 
