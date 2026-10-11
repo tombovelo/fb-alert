@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -10,6 +11,14 @@ import { guessSourceType } from '../common/facebook-url';
 import { PrismaService } from '../prisma/prisma.service';
 import { ScrapeQueueService } from '../queue/scraping-queue.service';
 import { CreateMonitorDto, UpdateMonitorDto } from './dto/monitors.dto';
+import { MONITOR_LIMITS } from '../user/user.service';
+
+const LIMIT_MESSAGES: Record<string, string> = {
+  TRIAL: 'Plan d’essai : vous pouvez suivre 1 source maximum, abonnez-vous.',
+  ACTIVE: 'Plan actif : vous pouvez suivre 5 sources maximum.',
+  EXPIRED: 'Abonnement expiré : vous pouvez suivre 1 source maximum, renouvelez votre abonnement.',
+  CANCELLED: 'Abonnement résilié : vous pouvez suivre 1 source maximum.',
+};
 
 @Injectable()
 export class MonitorsService {
@@ -47,20 +56,38 @@ export class MonitorsService {
   }
 
   async create(user: User, dto: CreateMonitorDto) {
-    // Plan d'essai : 2 surveillances maximum (actives ou en pause).
-    if (user.subscriptionStatus === 'TRIAL') {
-      const count = await this.prisma.userMonitor.count({
-        where: { userId: user.id },
+    // Abonnement expiré à la volée : un ACTIVE dont la date de fin est
+    // passée bascule en EXPIRED avant de vérifier la limite.
+    if (
+      user.subscriptionStatus === 'ACTIVE' &&
+      user.subscriptionExpiresAt &&
+      user.subscriptionExpiresAt < new Date()
+    ) {
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { subscriptionStatus: 'EXPIRED' },
       });
-      if (count >= 2) {
-        throw new ConflictException(
-          'Plan d’essai : vous pouvez suivre 2 sources maximum, abonnez-vous.',
-        );
-      }
+      user.subscriptionStatus = 'EXPIRED';
+    }
+
+    const limit = MONITOR_LIMITS[user.subscriptionStatus] ?? 1;
+    const count = await this.prisma.userMonitor.count({
+      where: { userId: user.id },
+    });
+    if (count >= limit) {
+      throw new ConflictException(
+        LIMIT_MESSAGES[user.subscriptionStatus] ??
+          'Limite de sources atteinte, abonnez-vous.',
+      );
     }
 
     const url = this.normalizeUrl(dto.url);
     const type = dto.type ?? guessSourceType(url);
+    if (type === 'FEED' && user.role !== 'ADMIN') {
+      throw new ForbiddenException(
+        'Seul un administrateur peut surveiller le Fil.',
+      );
+    }
 
     let source = await this.prisma.source.findUnique({ where: { url } });
     if (!source) {
@@ -330,7 +357,14 @@ export class MonitorsService {
       );
     }
     parsed.hash = '';
+    // Page à identifiant numérique : le paramètre id fait partie de l'adresse
+    // (facebook.com/profile.php?id=61573939206035) — on le conserve.
+    const profileId =
+      parsed.pathname.replace(/\/+$/, '') === '/profile.php'
+        ? parsed.searchParams.get('id')
+        : null;
     parsed.search = '';
+    if (profileId) parsed.searchParams.set('id', profileId);
     ['www.', 'm.', 'web.'].forEach((prefix) => {
       if (parsed.hostname.startsWith(prefix)) {
         parsed.hostname = parsed.hostname.slice(prefix.length);
@@ -338,7 +372,7 @@ export class MonitorsService {
     });
     let path = parsed.pathname.replace(/\/+$/, '');
     if (path === '') path = '/';
-    return `${parsed.origin}${path}`;
+    return `${parsed.origin}${path}${parsed.search}`;
   }
 
   private guessType(url: string): SourceType {

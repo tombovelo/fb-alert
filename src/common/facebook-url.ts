@@ -64,6 +64,12 @@ export function entityUrlFromPost(postUrl: string | null | undefined): string | 
       const id = parsed.searchParams.get('id');
       return id ? `https://www.facebook.com/profile.php?id=${id}` : undefined;
     }
+    // Page ou profil à identifiant numérique : les permaliens de publication
+    // sont en profile.php?id=X&story_fbid=Y — l'entité est profile.php?id=X.
+    if (segments[0] === 'profile.php') {
+      const id = parsed.searchParams.get('id');
+      return id ? `https://www.facebook.com/profile.php?id=${id}` : undefined;
+    }
 
     const first = segments[0];
     if (!first || RESERVED_SLUGS.has(first.toLowerCase())) return undefined;

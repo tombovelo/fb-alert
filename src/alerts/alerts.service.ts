@@ -54,7 +54,14 @@ export class AlertsService {
         userId: user.id,
         ...(query.monitorId ? { id: query.monitorId } : {}),
         ...(query.sourceId ? { sourceId: query.sourceId } : {}),
-        ...(query.sourceType ? { source: { type: query.sourceType } } : {}),
+        ...(query.sourceType
+          ? user.role === 'ADMIN' || query.sourceType !== 'FEED'
+            ? { source: { type: query.sourceType } }
+            : { source: { type: { not: 'FEED' } } }
+          : // Filtre « Toutes » : les non-admin ne voient pas le Fil (FEED).
+            user.role !== 'ADMIN'
+            ? { source: { type: { not: 'FEED' } } }
+            : {}),
       },
       ...(query.from ? { createdAt: { gte: new Date(query.from) } } : {}),
       ...(q

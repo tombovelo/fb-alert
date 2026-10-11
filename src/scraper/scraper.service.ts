@@ -26,6 +26,29 @@ import {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** Pause aléatoire « humaine » entre deux actions (500–2000 ms). */
+const humanDelay = () => sleep(500 + Math.floor(Math.random() * 1_500));
+
+/** User-agent d'un vrai Chrome sur Windows (l'UA headless contient
+ *  « HeadlessChrome » et fait immédiatement fuiter le scraping). */
+const REALISTIC_USER_AGENT =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+
+/**
+ * Script injecté avant chaque page : répare les signatures laissées par
+ * Playwright/Chromium headless (webdriver, plugins vides, chrome absent…)
+ * pour imiter un vrai Chrome aux yeux des scripts anti-bots de Facebook.
+ */
+const ANTI_DETECTION_SCRIPT = `
+  Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+  Object.defineProperty(navigator, 'languages', { get: () => ['fr-FR', 'fr'] });
+  Object.defineProperty(navigator, 'plugins', {
+    get: () => [1, 2, 3, 4, 5],
+  });
+  window.chrome = { runtime: {}, loadTimes: () => ({}), csi: () => ({}) };
+  Object.defineProperty(navigator, 'platform', { get: () => 'Win32' });
+`;
+
 @Injectable()
 export class ScraperService implements OnModuleDestroy {
   private readonly logger = new Logger(ScraperService.name);
@@ -49,8 +72,10 @@ export class ScraperService implements OnModuleDestroy {
     const context = await browser.newContext({
       viewport: { width: 1366, height: 900 },
       locale: 'fr-FR',
+      userAgent: REALISTIC_USER_AGENT,
       ...(storageState && existsSync(storageState) ? { storageState } : {}),
     });
+    await context.addInitScript(ANTI_DETECTION_SCRIPT);
     const page = await context.newPage();
     const capture = attachGraphQlCapture(page);
 
@@ -135,7 +160,7 @@ export class ScraperService implements OnModuleDestroy {
       );
     }
 
-    await sleep(1_500);
+    await humanDelay();
     await this.autoScroll(page);
 
     if (await this.isUnavailable(page)) {
@@ -156,8 +181,10 @@ export class ScraperService implements OnModuleDestroy {
     const context = await browser.newContext({
       viewport: { width: 1366, height: 900 },
       locale: 'fr-FR',
+      userAgent: REALISTIC_USER_AGENT,
       ...(storageState && existsSync(storageState) ? { storageState } : {}),
     });
+    await context.addInitScript(ANTI_DETECTION_SCRIPT);
     const page = await context.newPage();
 
     try {
@@ -165,7 +192,7 @@ export class ScraperService implements OnModuleDestroy {
         waitUntil: 'domcontentloaded',
         timeout: this.int('FB_NAV_TIMEOUT_MS', 45_000),
       });
-      await sleep(1_000);
+      await humanDelay();
       return await readPageName(page);
     } catch {
       return null;
@@ -200,7 +227,7 @@ export class ScraperService implements OnModuleDestroy {
           window.scrollBy(0, Math.round(window.innerHeight * 0.85)),
         )
         .catch(() => undefined);
-      await sleep(1_200);
+      await humanDelay();
     }
   }
 
@@ -301,6 +328,7 @@ export class ScraperService implements OnModuleDestroy {
       this.logger.log(
         `query="${keyword}": ${found.length} annonce(s), ${added} nouvelle(s)`,
       );
+      await humanDelay();
     }
 
     if (merged.length > 0) {
@@ -344,6 +372,7 @@ export class ScraperService implements OnModuleDestroy {
           waitUntil: 'domcontentloaded',
           timeout: navTimeout,
         });
+        await humanDelay();
         await page
           .getByText(/publié\s+(?:il y a|le|hier|aujourd|dans)/i)
           .first()
@@ -462,6 +491,7 @@ export class ScraperService implements OnModuleDestroy {
             window.scrollBy(0, Math.round(window.innerHeight * 0.85)),
           )
           .catch(() => undefined);
+        await humanDelay();
       }
 
       if (capture.posts.length > lastCount) {
