@@ -27,7 +27,7 @@ export class MonitorsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly queue: ScrapeQueueService,
-  ) {}
+  ) { }
 
   async list(user: User) {
     const rows = await this.prisma.userMonitor.findMany({
@@ -56,29 +56,33 @@ export class MonitorsService {
   }
 
   async create(user: User, dto: CreateMonitorDto) {
-    // Abonnement expiré à la volée : un ACTIVE dont la date de fin est
-    // passée bascule en EXPIRED avant de vérifier la limite.
-    if (
-      user.subscriptionStatus === 'ACTIVE' &&
-      user.subscriptionExpiresAt &&
-      user.subscriptionExpiresAt < new Date()
-    ) {
-      await this.prisma.user.update({
-        where: { id: user.id },
-        data: { subscriptionStatus: 'EXPIRED' },
-      });
-      user.subscriptionStatus = 'EXPIRED';
-    }
+    // L'admin n'est soumis à aucune limite d'abonnement.
+    if (user.role !== 'ADMIN') {
+      // Abonnement expiré à la volée : un ACTIVE dont la date de fin est
+      // passée bascule en EXPIRED avant de vérifier la limite.
+      if (
+        user.subscriptionStatus === 'ACTIVE' &&
+        user.subscriptionExpiresAt &&
+        user.subscriptionExpiresAt < new Date()
+      ) {
+        await this.prisma.user.update({
+          where: { id: user.id },
+          data: { subscriptionStatus: 'EXPIRED' },
+        });
+        user.subscriptionStatus = 'EXPIRED';
+        await this.keepOneActiveMonitor(user.id);
+      }
 
-    const limit = MONITOR_LIMITS[user.subscriptionStatus] ?? 1;
-    const count = await this.prisma.userMonitor.count({
-      where: { userId: user.id },
-    });
-    if (count >= limit) {
-      throw new ConflictException(
-        LIMIT_MESSAGES[user.subscriptionStatus] ??
+      const limit = MONITOR_LIMITS[user.subscriptionStatus] ?? 1;
+      const count = await this.prisma.userMonitor.count({
+        where: { userId: user.id },
+      });
+      if (count >= limit) {
+        throw new ConflictException(
+          LIMIT_MESSAGES[user.subscriptionStatus] ??
           'Limite de sources atteinte, abonnez-vous.',
-      );
+        );
+      }
     }
 
     const url = this.normalizeUrl(dto.url);
@@ -97,7 +101,7 @@ export class MonitorsService {
             url,
             type,
             name: dto.url,
-            checkIntervalMinutes: dto.checkIntervalMinutes ?? 5,
+            checkIntervalMinutes: dto.checkIntervalMinutes ?? 3,
           },
         });
       } catch (err) {
@@ -139,6 +143,25 @@ export class MonitorsService {
       }
       throw err;
     }
+  }
+
+  /**
+   * Ne garde qu'un seul moniteur actif pour l'utilisateur (le plus ancien) ;
+   * les autres sont mis en pause (isActive: false), jamais supprimés.
+   */
+  private async keepOneActiveMonitor(userId: string) {
+    const monitors = await this.prisma.userMonitor.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, isActive: true },
+    });
+    const active = monitors.filter((m) => m.isActive);
+    if (active.length <= 1) return;
+    const keepId = active[0].id;
+    await this.prisma.userMonitor.updateMany({
+      where: { userId, isActive: true, id: { not: keepId } },
+      data: { isActive: false },
+    });
   }
 
   async update(user: User, id: string, dto: UpdateMonitorDto) {

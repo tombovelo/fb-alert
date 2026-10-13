@@ -45,7 +45,9 @@ export class SourceSchedulerService {
     this.ticking = true;
     try {
       const sources = await this.prisma.source.findMany({
-        where: { status: 'ACTIVE' },
+        // Seules les sources suivies par au moins un moniteur actif sont
+        // scrapées (les moniteurs en pause ne consomment plus de ressources).
+        where: { status: 'ACTIVE', monitors: { some: { isActive: true } } },
         select: { id: true, lastScrapedAt: true, checkIntervalMinutes: true },
       });
 

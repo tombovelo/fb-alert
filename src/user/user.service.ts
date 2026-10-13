@@ -145,11 +145,43 @@ export class UserService {
       },
     });
 
+    // Moniteurs : résiliation/expiration → ne garde qu'une surveillance
+    // active ; réabonnement → réactive tout. L'admin est exempté.
+    if (user.role !== 'ADMIN') {
+      if (status === 'EXPIRED' || status === 'CANCELLED') {
+        await this.keepOneActiveMonitor(id);
+      } else if (status === 'ACTIVE') {
+        await this.prisma.userMonitor.updateMany({
+          where: { userId: id },
+          data: { isActive: true },
+        });
+      }
+    }
+
     // Acceptation : la demande en attente est consommée.
     if (status === 'ACTIVE') {
       await this.prisma.subscriptionRequest.deleteMany({ where: { userId: id } });
     }
     return updated;
+  }
+
+  /**
+   * Ne garde qu'un seul moniteur actif pour l'utilisateur (le plus ancien) ;
+   * les autres sont mis en pause (isActive: false), jamais supprimés.
+   */
+  private async keepOneActiveMonitor(userId: string) {
+    const monitors = await this.prisma.userMonitor.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, isActive: true },
+    });
+    const active = monitors.filter((m) => m.isActive);
+    if (active.length <= 1) return;
+    const keepId = active[0].id;
+    await this.prisma.userMonitor.updateMany({
+      where: { userId, isActive: true, id: { not: keepId } },
+      data: { isActive: false },
+    });
   }
 
   /** Numéro de téléphone de paiement (paramètre global). */
@@ -246,12 +278,24 @@ export class UserService {
 
   /** Bascule en EXPIRED tous les abonnements ACTIVE arrivés à échéance. */
   async expireLapsedSubscriptions() {
-    await this.prisma.user.updateMany({
+    const lapsed = await this.prisma.user.findMany({
       where: {
         subscriptionStatus: 'ACTIVE',
         subscriptionExpiresAt: { not: null, lt: new Date() },
       },
+      select: { id: true, role: true },
+    });
+    if (lapsed.length === 0) return;
+
+    await this.prisma.user.updateMany({
+      where: { id: { in: lapsed.map((u) => u.id) } },
       data: { subscriptionStatus: 'EXPIRED' },
     });
+
+    // Un seul moniteur actif conserve (sauf admin).
+    for (const user of lapsed) {
+      if (user.role === 'ADMIN') continue;
+      await this.keepOneActiveMonitor(user.id);
+    }
   }
 }
