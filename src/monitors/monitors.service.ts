@@ -101,7 +101,7 @@ export class MonitorsService {
             url,
             type,
             name: dto.url,
-            checkIntervalMinutes: dto.checkIntervalMinutes ?? 3,
+            checkIntervalMinutes: dto.checkIntervalMinutes ?? 5,
           },
         });
       } catch (err) {
@@ -164,8 +164,35 @@ export class MonitorsService {
     });
   }
 
+  /**
+   * Un utilisateur non-admin dont l'abonnement est expiré ou résilié ne peut
+   * pas (ré)activer une surveillance : seul le moniteur déjà actif (le plus
+   * ancien, conservé automatiquement) reste utilisable, et encore seulement en
+   * pause. La réactivation passe par un réabonnement.
+   */
+  private guardReactivation(
+    user: User,
+    monitor: { isActive: boolean },
+    requested?: boolean,
+  ) {
+    if (user.role === 'ADMIN' || requested !== true) return;
+    if (
+      user.subscriptionStatus !== 'EXPIRED' &&
+      user.subscriptionStatus !== 'CANCELLED'
+    ) {
+      return;
+    }
+    // Seule la désactivation (pause) est autorisée ; la réactivation est refusée.
+    if (monitor.isActive === false) {
+      throw new ForbiddenException(
+        'Abonnement expiré ou résilié : réabonnez-vous pour réactiver vos surveillances.',
+      );
+    }
+  }
+
   async update(user: User, id: string, dto: UpdateMonitorDto) {
     const owned = await this.owned(user, id);
+    this.guardReactivation(user, owned, dto.isActive);
     const { sourceId, retiredSourceId } = await this.retargetSource(
       user,
       owned.sourceId,
@@ -285,6 +312,7 @@ export class MonitorsService {
    */
   async reactivate(user: User, id: string) {
     const monitor = await this.owned(user, id);
+    this.guardReactivation(user, monitor, true);
     const source = await this.prisma.source.findUnique({
       where: { id: monitor.sourceId },
     });
