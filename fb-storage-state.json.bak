@@ -5,7 +5,7 @@
       "value": "61595333998145",
       "domain": ".facebook.com",
       "path": "/",
-      "expires": 1823285891,
+      "expires": 1823463863,
       "httpOnly": false,
       "secure": true,
       "sameSite": "None"
@@ -25,30 +25,20 @@
       "value": "1.25",
       "domain": ".facebook.com",
       "path": "/",
-      "expires": 1792354691,
+      "expires": 1792532663,
       "httpOnly": false,
       "secure": true,
       "sameSite": "None"
     },
     {
       "name": "fr",
-      "value": "1k25p0ytdjyTjVD7g.AWc1v5IHozHy0SgpX0jkuPf3W88xw7nB-fGdTX9F1dENTQpMM7w.Bqy-8D..AAA.0.0.Bqy-8D.AWdl51DQpKOjf66QGQvsDGRkYtE",
+      "value": "12pwFIPGGpfiR7m5Y.AWf8k_Txtuz9_2jyYH_s37Sm_VkfOvTEsUTumsAV0vDZsle7LiQ.BqzqY3..AAA.0.0.BqzqY3.AWdEDL8s4Zups-OeXMaAJmYHDeU",
       "domain": ".facebook.com",
       "path": "/",
-      "expires": 1799525891,
+      "expires": 1799703863,
       "httpOnly": true,
       "secure": true,
       "sameSite": "None"
-    },
-    {
-      "name": "presence",
-      "value": "C%7B%22t3%22%3A%5B%5D%2C%22utc3%22%3A1791749894218%2C%22v%22%3A1%7D",
-      "domain": ".facebook.com",
-      "path": "/",
-      "expires": -1,
-      "httpOnly": false,
-      "secure": true,
-      "sameSite": "Lax"
     },
     {
       "name": "ps_l",
@@ -75,7 +65,7 @@
       "value": "53vKajgMQCtn0kksk5O7VB3F",
       "domain": ".facebook.com",
       "path": "/",
-      "expires": 1826309886,
+      "expires": 1826329785,
       "httpOnly": true,
       "secure": true,
       "sameSite": "None"
@@ -85,17 +75,17 @@
       "value": "1536x730",
       "domain": ".facebook.com",
       "path": "/",
-      "expires": 1792355760,
+      "expires": 1792532663,
       "httpOnly": false,
       "secure": true,
       "sameSite": "Lax"
     },
     {
       "name": "xs",
-      "value": "26%3AodQyY30mJAr4LQ%3A2%3A1791749885%3A-1%3A-1%3A%3AAcwWgtCDvvLkHbUpF0G7u0d3OzvFb7ZPfMeVTx3wRA",
+      "value": "35%3Aj_gHBewH1IETYQ%3A2%3A1791769784%3A-1%3A-1%3A%3AAcxcGonetljGK3mF_nUFMG30qBJi2dKSqbvCmHQPXV4",
       "domain": ".facebook.com",
       "path": "/",
-      "expires": 1823285891,
+      "expires": 1823463863,
       "httpOnly": true,
       "secure": true,
       "sameSite": "None"
