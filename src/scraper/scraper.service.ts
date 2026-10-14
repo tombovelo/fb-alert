@@ -29,26 +29,6 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** Pause aléatoire « humaine » entre deux actions (500–2000 ms). */
 const humanDelay = () => sleep(500 + Math.floor(Math.random() * 1_500));
 
-/** User-agent d'un vrai Chrome sur Windows (l'UA headless contient
- *  « HeadlessChrome » et fait immédiatement fuiter le scraping). */
-const REALISTIC_USER_AGENT =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
-
-/**
- * Script injecté avant chaque page : répare les signatures laissées par
- * Playwright/Chromium headless (webdriver, plugins vides, chrome absent…)
- * pour imiter un vrai Chrome aux yeux des scripts anti-bots de Facebook.
- */
-const ANTI_DETECTION_SCRIPT = `
-  Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-  Object.defineProperty(navigator, 'languages', { get: () => ['fr-FR', 'fr'] });
-  Object.defineProperty(navigator, 'plugins', {
-    get: () => [1, 2, 3, 4, 5],
-  });
-  window.chrome = { runtime: {}, loadTimes: () => ({}), csi: () => ({}) };
-  Object.defineProperty(navigator, 'platform', { get: () => 'Win32' });
-`;
-
 @Injectable()
 export class ScraperService implements OnModuleDestroy {
   private readonly logger = new Logger(ScraperService.name);
@@ -71,11 +51,16 @@ export class ScraperService implements OnModuleDestroy {
     const storageState = this.storageStatePath();
     const context = await browser.newContext({
       viewport: { width: 1366, height: 900 },
+      screen: { width: 1366, height: 900 },
+      deviceScaleFactor: 1,
       locale: 'fr-FR',
-      userAgent: REALISTIC_USER_AGENT,
+      timezoneId: 'Indian/Antananarivo',
+      colorScheme: 'light',
+      reducedMotion: 'no-preference',
+      userAgent: this.buildUserAgent(browser.version()),
       ...(storageState && existsSync(storageState) ? { storageState } : {}),
     });
-    await context.addInitScript(ANTI_DETECTION_SCRIPT);
+    await context.addInitScript(this.antiDetectionScript());
     const page = await context.newPage();
     const capture = attachGraphQlCapture(page);
 
@@ -180,11 +165,15 @@ export class ScraperService implements OnModuleDestroy {
     const storageState = this.storageStatePath();
     const context = await browser.newContext({
       viewport: { width: 1366, height: 900 },
+      screen: { width: 1366, height: 900 },
+      deviceScaleFactor: 1,
       locale: 'fr-FR',
-      userAgent: REALISTIC_USER_AGENT,
+      timezoneId: 'Indian/Antananarivo',
+      colorScheme: 'light',
+      userAgent: this.buildUserAgent(browser.version()),
       ...(storageState && existsSync(storageState) ? { storageState } : {}),
     });
-    await context.addInitScript(ANTI_DETECTION_SCRIPT);
+    await context.addInitScript(this.antiDetectionScript());
     const page = await context.newPage();
 
     try {
@@ -259,6 +248,20 @@ export class ScraperService implements OnModuleDestroy {
     if (capture.posts.length < limit) {
       await this.collectGraphQl(page, capture, limit, type);
     }
+
+    // 2e chance : rechargement complet de la page. Le boot initial peut
+    // échouer à déclencher le fil GraphQL (tokens non prêts, JS retardé) ;
+    // un reload repart avec un état plus propre et intercepte souvent le flux.
+    if (capture.posts.length === 0 && type !== 'MARKETPLACE') {
+      this.logger.debug(`GraphQL muet au 1er passage — 2e essai avec reload sur ${page.url()}`);
+      await page
+        .reload({ waitUntil: 'domcontentloaded', timeout: this.int('FB_NAV_TIMEOUT_MS', 45_000) })
+        .catch(() => undefined);
+      await humanDelay();
+      await this.autoScroll(page);
+      await this.collectGraphQl(page, capture, limit, type);
+    }
+
     if (capture.posts.length > 0) return capture.posts;
 
     this.logger.debug(`Flux GraphQL non intercepté sur ${page.url()} -> repli DOM`);
@@ -518,6 +521,116 @@ export class ScraperService implements OnModuleDestroy {
     return Number.isFinite(raw) && raw >= 0 ? raw : fallback;
   }
 
+  /**
+   * UA cohérent avec la version RÉELLE du Chromium embarqué. Un UA figé
+   * (« Chrome/131 ») contredit les en-têtes Client Hints (sec-ch-ua) que
+   * Chromium émet avec sa vraie version — incohérence nº1 détectée par
+   * Facebook comme signature de bot.
+   */
+  private buildUserAgent(browserVersion: string): string {
+    const major = browserVersion.split('.')[0] ?? '131';
+    const platform = process.platform === 'darwin'
+      ? 'Macintosh; Intel Mac OS X 10_15_7'
+      : process.platform === 'win32'
+        ? 'Windows NT 10.0; Win64; x64'
+        : 'X11; Linux x86_64';
+    return `Mozilla/5.0 (${platform}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${major}.0.0.0 Safari/537.36`;
+  }
+
+  /**
+   * Script injecté avant chaque page : répare les signatures laissées par
+   * Playwright/Chromium headless pour imiter un vrai Chrome aux yeux des
+   * scripts anti-bots de Facebook.
+   */
+  private antiDetectionScript(): string {
+    const platformProp =
+      process.platform === 'darwin'
+        ? 'MacIntel'
+        : process.platform === 'win32'
+          ? 'Win32'
+          : 'Linux x86_64';
+    return `
+      Object.defineProperty(Navigator.prototype, 'webdriver', { get: () => undefined });
+      Object.defineProperty(navigator, 'languages', { get: () => ['fr-FR', 'fr', 'en'] });
+      Object.defineProperty(navigator, 'language', { get: () => 'fr-FR' });
+      Object.defineProperty(navigator, 'platform', { get: () => ${JSON.stringify(platformProp)} });
+      Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });
+      Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 });
+
+      Object.defineProperty(navigator, 'plugins', {
+        get: () => {
+          const arr = [
+            { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format', length: 1, item: () => null, namedItem: () => null },
+            { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '', length: 1, item: () => null, namedItem: () => null },
+            { name: 'Native Client', filename: 'internal-nacl-plugin', description: '', length: 2, item: () => null, namedItem: () => null },
+          ];
+          arr.item = (i) => arr[i] || null;
+          arr.namedItem = (n) => arr.find((p) => p.name === n) || null;
+          arr.refresh = () => {};
+          return arr;
+        },
+      });
+
+      window.chrome = {
+        app: { isInstalled: false, InstallState: {}, RunningState: {} },
+        runtime: {
+          OnInstalledReason: {}, OnRestartRequiredReason: {},
+          PlatformArch: {}, PlatformNaclArch: {}, PlatformOs: {}, RequestUpdateCheckStatus: {},
+          connect: () => ({ onMessage: { addListener: () => {} }, postMessage: () => {}, disconnect: () => {} }),
+          id: undefined,
+        },
+        csi: () => ({ startE: Date.now(), onloadT: Date.now(), pageT: 100, startT: Date.now(), tran: 15 }),
+        loadTimes: () => ({
+          commitLoadTime: Date.now() / 1000, connectionInfo: 'h2',
+          finishDocumentLoadTime: Date.now() / 1000, finishLoadTime: Date.now() / 1000,
+          firstPaintAfterLoadTime: 0, firstPaintTime: Date.now() / 1000,
+          navigationType: 'Other', npnNegotiatedProtocol: 'h2',
+          requestTime: Date.now() / 1000, startLoadTime: Date.now() / 1000,
+          wasAlternateProtocolAvailable: false, wasFetchedViaSpdy: true, wasNpnNegotiated: true,
+        }),
+      };
+
+      // WebGL : le headless expose SwiftShader/Google Inc. — on masque
+      // avec un vendor/renderer Intel realiste.
+      const getParameter = WebGLRenderingContext.prototype.getParameter;
+      WebGLRenderingContext.prototype.getParameter = function (p) {
+        const UNMASKED_VENDOR_WEBGL = 0x9245;
+        const UNMASKED_RENDERER_WEBGL = 0x9246;
+        if (p === UNMASKED_VENDOR_WEBGL) return 'Google Inc. (Intel)';
+        if (p === UNMASKED_RENDERER_WEBGL)
+          return 'ANGLE (Intel, Intel(R) UHD Graphics 630 (0x00003E92) Direct3D11 vs_5_0 ps_5_0, D3D11)';
+        return getParameter.call(this, p);
+      };
+
+      // Permissions : headless renvoie « denied » par défaut.
+      if (navigator.permissions && navigator.permissions.query) {
+        const origQuery = navigator.permissions.query.bind(navigator.permissions);
+        navigator.permissions.query = (parameters) =>
+          parameters && parameters.name === 'notifications'
+            ? Promise.resolve({ state: 'default', status: 'prompt', onchange: null })
+            : origQuery(parameters);
+      }
+
+      // Dimensions fenêtre : le headless a outerWidth === innerWidth.
+      Object.defineProperty(window, 'outerWidth', { get: () => 1366 });
+      Object.defineProperty(window, 'outerHeight', { get: () => 1000 });
+
+      // Speech : le headless n'a aucune voix.
+      if (window.speechSynthesis) {
+        window.speechSynthesis.getVoices = () => [
+          { name: 'Microsoft French (France)', lang: 'fr-FR', localService: true, default: true, voiceURI: 'Microsoft French (France)' },
+        ];
+      }
+
+      // Connection : le headless n'a pas navigator.connection.
+      if (!navigator.connection) {
+        Object.defineProperty(navigator, 'connection', {
+          get: () => ({ effectiveType: '4g', rtt: 50, downlink: 10, saveData: false }),
+        });
+      }
+    `;
+  }
+
   private async getBrowser(): Promise<Browser> {
     if (this.browser?.isConnected()) return this.browser;
     if (!this.launching) {
@@ -528,7 +641,17 @@ export class ScraperService implements OnModuleDestroy {
           // figée sur l'écran de chargement. Le nouveau mode headless
           // (binaire chromium complet) rend le fil normalement.
           channel: 'chromium',
-          args: ['--no-sandbox', '--disable-dev-shm-usage'],
+          args: [
+            '--no-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-blink-features=AutomationControlled',
+            '--disable-features=IsolateOrigins,site-per-process',
+            '--enable-features=NetworkService,NetworkServiceInProcess',
+            '--enable-webgl',
+            '--use-gl=angle',
+            '--use-angle=swiftshader-webgl',
+            '--lang=fr-FR',
+          ],
         })
         .then((browser) => {
           browser.on('disconnected', () => {
