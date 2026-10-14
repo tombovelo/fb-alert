@@ -82,7 +82,7 @@ const ANTI_XSS_PREFIX = 'for (;;);';
  * page à identifiant numérique (`profile.php?id=X&story_fbid=Y`) sont gardés.
  */
 const EXCLUDED_URL_RE =
-  /\/notifications\/|\/login|\/checkpoint|\/messages\/|\/events\/birthdays|\/friends\/|[?&]notif_id=|[?&]notif_t=|[?&]ref=notif|l\.facebook\.com\/l\.php/i;
+  /\/notifications\/|\/login|\/checkpoint|\/messages\/|\/events\/birthdays|\/friends\/|\/account_status|[?&]notif_id=|[?&]notif_t=|[?&]ref=notif|l\.facebook\.com\/l\.php/i;
 
 const PROFILE_LINK_RE = /profile\.php/i;
 const POST_PERMALINK_RE = /story_fbid=|\/posts\//i;
