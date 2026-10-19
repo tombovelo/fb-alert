@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FB-Alert — Télécharger l'application</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --accent: #3b82f6;
+      --accent-hover: #2563eb;
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .card {
+      background: var(--card);
+      border-radius: 16px;
+      padding: 40px 32px;
+      max-width: 420px;
+      width: 100%;
+      text-align: center;
+      box-shadow: 0 8px 30px rgba(0,0,0,.35);
+    }
+    .logo {
+      width: 88px;
+      height: 88px;
+      border-radius: 22px;
+      background: linear-gradient(135deg, var(--accent), #8b5cf6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 24px;
+      font-size: 42px;
+    }
+    h1 { font-size: 26px; margin-bottom: 8px; }
+    p.sub { color: var(--muted); font-size: 15px; line-height: 1.5; margin-bottom: 28px; }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--accent);
+      color: #fff;
+      text-decoration: none;
+      font-size: 17px;
+      font-weight: 600;
+      padding: 14px 28px;
+      border-radius: 12px;
+      transition: background .15s ease;
+    }
+    .btn:hover { background: var(--accent-hover); }
+    .meta { margin-top: 18px; font-size: 13px; color: var(--muted); }
+    .meta a { color: var(--accent); text-decoration: none; }
+    .features { margin-top: 32px; text-align: left; }
+    .features li {
+      list-style: none;
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      margin-bottom: 12px;
+      font-size: 14px;
+      color: var(--muted);
+      line-height: 1.4;
+    }
+    .features .check { color: #34d399; font-weight: bold; flex-shrink: 0; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">🔔</div>
+    <h1>FB-Alert</h1>
+    <p class="sub">Recevez des alertes en temps réel quand des annonces correspondant à vos mots-clés sont publiées</p>
+
+    <a class="btn" href="/apk/fb-alert.apk" download>
+      ⬇ Télécharger l'application
+    </a>
+    <p class="meta">Format APK · Android 8.0 ou supérieur</p>
+
+    <ul class="features">
+      <li><span class="check">✓</span> Surveillez vos groupes et pages préférés</li>
+      <li><span class="check">✓</span> Alertes par mots-clés et budget de prix</li>
+      <li><span class="check">✓</span> Sauvegardez vos annonces favorites</li>
+    </ul>
+  </div>
+</body>
+</html>

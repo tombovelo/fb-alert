@@ -94,7 +94,6 @@ export class ScraperService implements OnModuleDestroy {
         capture,
         limit,
         source.type,
-        source.url,
       );
       const posts = this.toPosts(candidates, limit);
 
@@ -240,7 +239,6 @@ export class ScraperService implements OnModuleDestroy {
     capture: GraphQlCapture,
     limit: number,
     type: SourceType,
-    sourceUrl: string,
   ): Promise<ScrapedCandidate[]> {
     // Marketplace n'est pas exposé par le fil GraphQL (seuls des liens
     // sortants le sont) : on lit directement le DOM, qui est la voie validée.
@@ -269,21 +267,14 @@ export class ScraperService implements OnModuleDestroy {
       await this.collectGraphQl(page, capture, limit, type);
     }
 
-    const scoped = this.keepSourcePosts(capture.posts, type, sourceUrl);
-    if (scoped.length > 0) return scoped;
-    if (capture.posts.length > 0) {
-      this.logger.debug(
-        `${capture.posts.length} post(s) GraphQL intercepté(s) mais tous étrangers à ${sourceUrl} -> repli DOM`,
-      );
-    }
+    if (capture.posts.length > 0) return capture.posts;
 
     this.logger.debug(`Flux GraphQL non intercepté sur ${page.url()} -> repli DOM`);
 
     let domPosts = await extractPostsFromDom(page, type, limit);
     if (domPosts.length === 0) {
       await sleep(1_500);
-      const retryScoped = this.keepSourcePosts(capture.posts, type, sourceUrl);
-      if (retryScoped.length > 0) return retryScoped;
+      if (capture.posts.length > 0) return capture.posts;
       domPosts = await extractPostsFromDom(page, type, limit);
     }
 
@@ -296,32 +287,7 @@ export class ScraperService implements OnModuleDestroy {
       }
     }
 
-    return domPosts.length > 0 ? domPosts : this.keepSourcePosts(capture.posts, type, sourceUrl);
-  }
-
-  /**
-   * Le boot GraphQL de Facebook éparpille dans le même flux les
-   * recommandations d'autres groupes/pages et divers liens de navigation.
-   * On ne garde que les posts qui appartiennent réellement à la source
-   * surveillée (même groupe, ou non rattachés à un autre groupe).
-   */
-  private keepSourcePosts(
-    candidates: ScrapedCandidate[],
-    type: SourceType,
-    sourceUrl: string,
-  ): ScrapedCandidate[] {
-    const sourceGroup = sourceUrl.match(/\/groups\/([^/?#]+)/)?.[1]?.toLowerCase();
-    return candidates.filter((candidate) => {
-      if (!candidate.url) return true;
-      const url = candidate.url.toLowerCase();
-      const urlGroup = url.match(/\/groups\/([^/?#]+)/)?.[1]?.toLowerCase();
-      if (type === 'GROUP' && urlGroup && sourceGroup && urlGroup !== sourceGroup) {
-        return false;
-      }
-      if (type !== 'GROUP' && urlGroup) return false;
-      if (type === 'GROUP' && url.includes('/marketplace/item/')) return false;
-      return true;
-    });
+    return domPosts.length > 0 ? domPosts : capture.posts;
   }
 
   /**

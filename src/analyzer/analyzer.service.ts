@@ -287,6 +287,10 @@ export class AnalyzerService implements OnModuleInit, OnModuleDestroy {
     minPrice: number | null | undefined,
     maxPrice: number | null | undefined,
   ): boolean {
+    // Fourchette définie (min seul, max seul ou les deux) : un prix doit être
+    // détecté ET respecter la borne — post sans prix = rejeté (condition ET).
+    const rangeDefined = minPrice != null || maxPrice != null;
+    if (rangeDefined && price === null) return false;
     if (price === null) return true;
     if (minPrice != null && price < minPrice) return false;
     if (maxPrice != null && price > maxPrice) return false;

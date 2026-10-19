@@ -166,14 +166,14 @@ export class MonitorsService {
 
   /**
    * Un utilisateur non-admin dont l'abonnement est expiré ou résilié ne peut
-   * pas (ré)activer une surveillance : seul le moniteur déjà actif (le plus
-   * ancien, conservé automatiquement) reste utilisable, et encore seulement en
-   * pause. La réactivation passe par un réabonnement.
+   * pas (ré)activer ses surveillances en pause — sauf la surveillance
+   * conservée (la plus ancienne), qui reste gérable sans réabonnement.
    */
   private guardReactivation(
     user: User,
     monitor: { isActive: boolean },
     requested?: boolean,
+    isKept = false,
   ) {
     if (user.role === 'ADMIN' || requested !== true) return;
     if (
@@ -182,6 +182,7 @@ export class MonitorsService {
     ) {
       return;
     }
+    if (isKept) return;
     // Seule la désactivation (pause) est autorisée ; la réactivation est refusée.
     if (monitor.isActive === false) {
       throw new ForbiddenException(
@@ -190,9 +191,41 @@ export class MonitorsService {
     }
   }
 
+  /**
+   * Surveillance la plus ancienne de l'utilisateur : c'est celle que la règle
+   * d'expiration/résiliation garde active. Un abonnement expiré ou résilié
+   * peut entièrement la gérer (modifier, mettre en pause, rallumer) ; toutes
+   * les autres surveillances restent en lecture seule — leur date de coupure
+   * News/Alertes ne bouge donc jamais.
+   */
+  private async keptMonitorId(userId: string): Promise<string | null> {
+    const oldest = await this.prisma.userMonitor.findFirst({
+      where: { userId },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true },
+    });
+    return oldest?.id ?? null;
+  }
+
+  private guardEditIfLapsed(user: User, isKept: boolean) {
+    if (user.role === 'ADMIN') return;
+    if (
+      user.subscriptionStatus !== 'EXPIRED' &&
+      user.subscriptionStatus !== 'CANCELLED'
+    ) {
+      return;
+    }
+    if (isKept) return;
+    throw new ForbiddenException(
+      'Abonnement expiré ou résilié : cette surveillance est en lecture seule. Réabonnez-vous pour la modifier.',
+    );
+  }
+
   async update(user: User, id: string, dto: UpdateMonitorDto) {
     const owned = await this.owned(user, id);
-    this.guardReactivation(user, owned, dto.isActive);
+    const isKept = (await this.keptMonitorId(user.id)) === id;
+    this.guardReactivation(user, owned, dto.isActive, isKept);
+    this.guardEditIfLapsed(user, isKept);
     const { sourceId, retiredSourceId } = await this.retargetSource(
       user,
       owned.sourceId,
@@ -312,7 +345,8 @@ export class MonitorsService {
    */
   async reactivate(user: User, id: string) {
     const monitor = await this.owned(user, id);
-    this.guardReactivation(user, monitor, true);
+    const isKept = (await this.keptMonitorId(user.id)) === id;
+    this.guardReactivation(user, monitor, true, isKept);
     const source = await this.prisma.source.findUnique({
       where: { id: monitor.sourceId },
     });

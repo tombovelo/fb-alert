@@ -49,31 +49,54 @@ export class AlertsService {
     const limit = query.limit ?? 20;
     const q = query.q?.trim();
 
-    const where: Prisma.MatchedPostWhereInput = {
-      userMonitor: {
-        userId: user.id,
-        ...(query.monitorId ? { id: query.monitorId } : {}),
-        ...(query.sourceId ? { sourceId: query.sourceId } : {}),
-        ...(query.sourceType
-          ? user.role === 'ADMIN' || query.sourceType !== 'FEED'
-            ? { source: { type: query.sourceType } }
-            : { source: { type: { not: 'FEED' } } }
-          : // Filtre « Toutes » : les non-admin ne voient pas le Fil (FEED).
-            user.role !== 'ADMIN'
-            ? { source: { type: { not: 'FEED' } } }
-            : {}),
+    // Surveillances en pause : date de mise en pause (coupure, comme News).
+    const paused = await this.prisma.userMonitor.findMany({
+      where: { userId: user.id, isActive: false },
+      select: { id: true, updatedAt: true },
+    });
+
+    const search: Prisma.MatchedPostWhereInput | undefined = q
+      ? {
+          OR: [
+            { processedPost: { title: { contains: q, mode: 'insensitive' } } },
+            { processedPost: { aiSummary: { contains: q, mode: 'insensitive' } } },
+            { processedPost: { rawContent: { contains: q, mode: 'insensitive' } } },
+          ],
+        }
+      : undefined;
+
+    const conditions: Prisma.MatchedPostWhereInput[] = [
+      {
+        userMonitor: {
+          userId: user.id,
+          ...(query.monitorId ? { id: query.monitorId } : {}),
+          ...(query.sourceId ? { sourceId: query.sourceId } : {}),
+          ...(query.sourceType
+            ? user.role === 'ADMIN' || query.sourceType !== 'FEED'
+              ? { source: { type: query.sourceType } }
+              : { source: { type: { not: 'FEED' } } }
+            : // Filtre « Toutes » : les non-admin ne voient pas le Fil (FEED).
+              user.role !== 'ADMIN'
+              ? { source: { type: { not: 'FEED' } } }
+              : {}),
+        },
       },
-      ...(query.from ? { createdAt: { gte: new Date(query.from) } } : {}),
-      ...(q
-        ? {
-            OR: [
-              { processedPost: { title: { contains: q, mode: 'insensitive' } } },
-              { processedPost: { aiSummary: { contains: q, mode: 'insensitive' } } },
-              { processedPost: { rawContent: { contains: q, mode: 'insensitive' } } },
-            ],
-          }
-        : {}),
-    };
+      // Visibilité : même règle que News — surveillance active → tous les
+      // posts ; surveillance en pause → uniquement ceux d'avant la mise en pause.
+      {
+        OR: [
+          { userMonitor: { isActive: true } },
+          ...paused.map((monitor) => ({
+            userMonitorId: monitor.id,
+            createdAt: { lte: monitor.updatedAt },
+          })),
+        ],
+      },
+      ...(query.from ? [{ createdAt: { gte: new Date(query.from) } }] : []),
+      ...(search ? [search] : []),
+    ];
+
+    const where: Prisma.MatchedPostWhereInput = { AND: conditions };
 
     const total = await this.prisma.matchedPost.count({ where });
     const rows = await this.prisma.matchedPost.findMany({
