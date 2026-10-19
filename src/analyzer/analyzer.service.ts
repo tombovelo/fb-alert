@@ -21,6 +21,7 @@ export interface AnalysisStats {
   aiCacheHits: number;
   matched: number;
   retryQueued: number;
+
 }
 
 @Injectable()
@@ -32,7 +33,7 @@ export class AnalyzerService implements OnModuleInit, OnModuleDestroy {
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
     private readonly ai: AiService,
-  ) {}
+  ) { }
 
   onModuleInit() {
     const url = this.config.get<string>('REDIS_URL') ?? 'redis://localhost:6379';
@@ -273,9 +274,9 @@ export class AnalyzerService implements OnModuleInit, OnModuleDestroy {
     if (posts.length > 0) {
       this.logger.log(
         `${source.url}: ${stats.alreadySeen} déjà vu(s), ${stats.filtered} rejet(s) filtre, ` +
-          `${stats.aiCalls} appel(s) IA (${stats.aiCacheHits} depuis le cache), ` +
-          `${stats.matched} match(s)` +
-          (stats.retryQueued > 0 ? `, ${stats.retryQueued} à réanalyser` : ''),
+        `${stats.aiCalls} appel(s) IA (${stats.aiCacheHits} depuis le cache), ` +
+        `${stats.matched} match(s)` +
+        (stats.retryQueued > 0 ? `, ${stats.retryQueued} à réanalyser` : ''),
       );
     }
 

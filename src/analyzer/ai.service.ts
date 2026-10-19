@@ -126,7 +126,7 @@ export function detectPrice(text: string): number | null {
 export class AiService {
   private readonly logger = new Logger(AiService.name);
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(private readonly config: ConfigService) { }
 
   get mockEnabled(): boolean {
     return (
