@@ -18,15 +18,32 @@ export class PostsService {
     const limit = query.limit ?? 20;
     const q = query.q?.trim();
 
+    // Surveillances en pause : date de mise en pause (« dernière modification »
+    // du moniteur). C'est la coupure de News — voir AlertsService.list().
+    const paused = await this.prisma.userMonitor.findMany({
+      where: { userId: user.id, isActive: false },
+      select: { sourceId: true, updatedAt: true },
+    });
+
     const conditions: Prisma.ProcessedPostWhereInput[] = [
       {
         source: {
-          monitors: { some: { userId: user.id } },
           // Les non-admin ne voient pas le Fil (FEED) dans News.
           ...(user.role === 'ADMIN'
             ? { type: { not: 'MARKETPLACE' } }
             : { type: { notIn: ['MARKETPLACE', 'FEED'] } }),
         },
+      },
+      // Visibilité : surveillance active → tous les posts du groupe ;
+      // surveillance en pause → uniquement ceux reçus avant la mise en pause.
+      {
+        OR: [
+          { source: { monitors: { some: { userId: user.id, isActive: true } } } },
+          ...paused.map((monitor) => ({
+            sourceId: monitor.sourceId,
+            createdAt: { lte: monitor.updatedAt },
+          })),
+        ],
       },
       // Publications « complètes » : auteur, texte et date de publication présents.
       { author: { not: null } },

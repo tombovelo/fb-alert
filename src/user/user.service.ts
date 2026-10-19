@@ -2,8 +2,10 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { SubscriptionStatus, User } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -23,6 +25,8 @@ export const MONITOR_LIMITS: Record<SubscriptionStatus, number> = {
 
 @Injectable()
 export class UserService {
+  private readonly logger = new Logger(UserService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   profile(user: User) {
@@ -285,7 +289,7 @@ export class UserService {
       },
       select: { id: true, role: true },
     });
-    if (lapsed.length === 0) return;
+    if (lapsed.length === 0) return 0;
 
     await this.prisma.user.updateMany({
       where: { id: { in: lapsed.map((u) => u.id) } },
@@ -296,6 +300,24 @@ export class UserService {
     for (const user of lapsed) {
       if (user.role === 'ADMIN') continue;
       await this.keepOneActiveMonitor(user.id);
+    }
+    return lapsed.length;
+  }
+
+  /**
+   * Contrôle automatique horaire : un abonnement ACTIVE arrivé à échéance
+   * passe en EXPIRED sans attendre la visite de l'admin sur la page
+   * Abonnements. Même règle que adminSubscriptions().
+   */
+  @Cron(CronExpression.EVERY_HOUR)
+  async expireLapsedSubscriptionsCron() {
+    try {
+      const count = await this.expireLapsedSubscriptions();
+      if (count > 0) {
+        this.logger.log(`Abonnements expirés automatiquement : ${count}`);
+      }
+    } catch (err) {
+      this.logger.error(`Échec de l'expiration automatique : ${String(err)}`);
     }
   }
 }
