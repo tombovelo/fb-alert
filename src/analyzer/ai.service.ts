@@ -17,10 +17,7 @@ export interface AiAnalysis {
 
 const LLM_TIMEOUT_MS = 20_000;
 const MAX_ATTEMPTS = 3;
-const DEFAULT_OPENROUTER_MODELS = [
-  'qwen/qwen3.8-27b:free',
-  'nvidia/nemotron-3-super-120b-a12b:free',
-];
+const DEFAULT_NVIDIA_MODEL = 'nvidia/nemotron-3.5-super-vl-120b-a12b';
 const DEFAULT_GEMINI_MODEL = 'gemini-3.8-flash';
 
 const NO_RETRY_RE =
@@ -136,8 +133,7 @@ export class AiService {
   }
 
   /**
-   * Priorité : OpenRouter (OPENROUTER_MODELS dans l'ordre, une clé
-   * OPENROUTER_MODEL seule est acceptée) puis Gemini.
+   * Priorité : NVIDIA (NVIDIA_MODEL, Nemotron) puis Gemini en secours.
    * Le mock (GEMINI_MOCK/AI_MOCK) court-circuite les deux.
    */
   async analyze(text: string, criteria: AiCriteria): Promise<AiAnalysis> {
@@ -145,29 +141,27 @@ export class AiService {
 
     const failures: string[] = [];
 
-    const openrouterKey = this.config.get<string>('OPENROUTER_API_KEY');
-    if (openrouterKey) {
-      for (const model of this.openrouterModels()) {
-        try {
-          const startedAt = Date.now();
-          const result = await this.withRetry(
-            'OpenRouter',
-            () => this.callOpenRouter(openrouterKey, model, text, criteria),
-            model,
-          );
-          this.logger.debug(
-            `OpenRouter ${model} OK en ${Date.now() - startedAt} ms (isMatch=${result.isMatch})`,
-          );
-          return result;
-        } catch (err) {
-          failures.push(`OpenRouter(${model}): ${(err as Error).message}`);
-          this.logger.warn(
-            `OpenRouter ${model} en échec — ${(err as Error).message.slice(0, 120)}`,
-          );
-        }
-      }
-      if (failures.length > 0) {
-        this.logger.warn('Repli sur Gemini après échec des modèles OpenRouter');
+    const nvidiaKey = this.config.get<string>('NVIDIA_API_KEY');
+    if (nvidiaKey) {
+      const model =
+        this.config.get<string>('NVIDIA_MODEL') || DEFAULT_NVIDIA_MODEL;
+      try {
+        const startedAt = Date.now();
+        const result = await this.withRetry(
+          'NVIDIA',
+          () => this.callNvidia(nvidiaKey, model, text, criteria),
+          model,
+        );
+        this.logger.debug(
+          `NVIDIA ${model} OK en ${Date.now() - startedAt} ms (isMatch=${result.isMatch})`,
+        );
+        return result;
+      } catch (err) {
+        failures.push(`NVIDIA(${model}): ${(err as Error).message}`);
+        this.logger.warn(
+          `NVIDIA ${model} en échec — ${(err as Error).message.slice(0, 120)}`,
+        );
+        this.logger.warn('Repli sur Gemini après échec de NVIDIA');
       }
     }
 
@@ -193,23 +187,10 @@ export class AiService {
 
     if (failures.length === 0) {
       throw new Error(
-        'Aucune clé IA configurée (OPENROUTER_API_KEY ou GEMINI_API_KEY manquante dans .env)',
+        'Aucune clé IA configurée (NVIDIA_API_KEY ou GEMINI_API_KEY manquante dans .env)',
       );
     }
     throw new Error(failures.join(' | '));
-  }
-
-  /** Modèles OpenRouter dans l'ordre de priorité (CSV dans OPENROUTER_MODELS). */
-  private openrouterModels(): string[] {
-    const raw =
-      this.config.get<string>('OPENROUTER_MODELS') ||
-      this.config.get<string>('OPENROUTER_MODEL');
-    if (!raw) return DEFAULT_OPENROUTER_MODELS;
-    const list = raw
-      .split(',')
-      .map((m) => m.trim())
-      .filter(Boolean);
-    return list.length > 0 ? list : DEFAULT_OPENROUTER_MODELS;
   }
 
   private async withRetry(
@@ -236,37 +217,43 @@ export class AiService {
     throw new Error(`${provider} (${model}): ${lastError.message}`);
   }
 
-  private async callOpenRouter(
+  private async callNvidia(
     apiKey: string,
     model: string,
     text: string,
     criteria: AiCriteria,
   ): Promise<AiAnalysis> {
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-        'X-Title': 'FB-Alert-Tracker',
+    const response = await fetch(
+      'https://integrate.api.nvidia.com/v1/chat/completions',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          temperature: 0.2,
+          top_p: 0.95,
+          max_tokens: 2048,
+          seed: 42,
+          stream: false,
+          messages: [{ role: 'user', content: this.buildPrompt(text, criteria) }],
+        }),
+        signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
       },
-      body: JSON.stringify({
-        model,
-        temperature: 0.1,
-        messages: [{ role: 'user', content: this.buildPrompt(text, criteria) }],
-      }),
-      signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
-    });
+    );
 
     if (!response.ok) {
       const body = await response.text();
-      throw new Error(`OpenRouter HTTP ${response.status}: ${body.slice(0, 200)}`);
+      throw new Error(`NVIDIA HTTP ${response.status}: ${body.slice(0, 200)}`);
     }
 
     const data = (await response.json()) as {
       choices?: { message?: { content?: string } }[];
     };
     const content = data.choices?.[0]?.message?.content;
-    if (!content) throw new Error('OpenRouter: réponse vide (sans choices)');
+    if (!content) throw new Error('NVIDIA: réponse vide (sans choices)');
 
     return parseAiAnalysis(content);
   }

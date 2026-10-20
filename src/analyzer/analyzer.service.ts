@@ -150,7 +150,7 @@ export class AnalyzerService implements OnModuleInit, OnModuleDestroy {
           continue;
         }
 
-        // C. Analyse sémantique (OpenRouter puis Gemini), avec cache partagé
+        // C. Analyse sémantique (NVIDIA puis Gemini), avec cache partagé
         // entre monitors aux critères strictement identiques.
         let analysis: AiAnalysis;
         if (monitor.user.aiEnabled) {
