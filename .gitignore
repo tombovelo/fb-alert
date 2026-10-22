@@ -2,4 +2,6 @@ node_modules/
 dist/
 .env
 *.log
-fb-storage-state.json
+fb-storage-state*
+*.bak
+data/

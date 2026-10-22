@@ -62,7 +62,7 @@ export class ScraperService implements OnModuleDestroy {
     const storageState = this.storageStatePath();
     const context = await browser.newContext({
       viewport: { width: 1366, height: 900 },
-      screen: { width: 1366, height: 900 },
+      screen: { width: 1920, height: 1080 },
       deviceScaleFactor: 1,
       locale: 'fr-FR',
       timezoneId: 'Indian/Antananarivo',
@@ -185,7 +185,7 @@ export class ScraperService implements OnModuleDestroy {
     const storageState = this.storageStatePath();
     const context = await browser.newContext({
       viewport: { width: 1366, height: 900 },
-      screen: { width: 1366, height: 900 },
+      screen: { width: 1920, height: 1080 },
       deviceScaleFactor: 1,
       locale: 'fr-FR',
       timezoneId: 'Indian/Antananarivo',
@@ -556,10 +556,10 @@ export class ScraperService implements OnModuleDestroy {
   }
 
   /**
-   * UA cohérent avec la version RÉELLE du Chromium embarqué. Un UA figé
-   * (« Chrome/131 ») contredit les en-têtes Client Hints (sec-ch-ua) que
-   * Chromium émet avec sa vraie version — incohérence nº1 détectée par
-   * Facebook comme signature de bot.
+   * UA cohérent avec la version RÉELLE du Chromium embarqué. Le nouveau
+   * headless ajoute « HeadlessChrome » à l'UA natif : on le remplace par
+   * « Chrome » en conservant les mêmes version et plateforme, pour rester
+   * aligné avec les Client Hints (sec-ch-ua) émis par le navigateur.
    */
   private buildUserAgent(browserVersion: string): string {
     const major = browserVersion.split('.')[0] ?? '131';
@@ -572,96 +572,92 @@ export class ScraperService implements OnModuleDestroy {
   }
 
   /**
-   * Script injecté avant chaque page : répare les signatures laissées par
-   * Playwright/Chromium headless pour imiter un vrai Chrome aux yeux des
-   * scripts anti-bots de Facebook.
+   * Script injecté avant chaque page. On garde un strict minimum d'overrides,
+   * cohérents avec l'OS réel : le nouveau headless fournit déjà des valeurs
+   * natives correctes (UA/Client Hints, window.chrome, plugins, permissions).
+   * Les fonctions remplacées sont masquées derrière Function.prototype.toString
+   * pour rester indiscernables de fonctions natives.
    */
   private antiDetectionScript(): string {
-    const platformProp =
+    const vendor = 'Google Inc. (Intel)';
+    const renderer =
       process.platform === 'darwin'
-        ? 'MacIntel'
+        ? 'ANGLE (Intel, Intel(R) Iris(TM) Plus Graphics OpenGL Engine, OpenGL 4.1)'
         : process.platform === 'win32'
-          ? 'Win32'
-          : 'Linux x86_64';
+          ? 'ANGLE (Intel, Intel(R) UHD Graphics 630 (0x00003E92) Direct3D11 vs_5_0 ps_5_0, D3D11)'
+          : 'ANGLE (Intel, Mesa Intel(R) UHD Graphics 630 (CFL GT2), OpenGL 4.6)';
+
     return `
-      Object.defineProperty(Navigator.prototype, 'webdriver', { get: () => undefined });
-      Object.defineProperty(navigator, 'languages', { get: () => ['fr-FR', 'fr', 'en'] });
-      Object.defineProperty(navigator, 'language', { get: () => 'fr-FR' });
-      Object.defineProperty(navigator, 'platform', { get: () => ${JSON.stringify(platformProp)} });
-      Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });
-      Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 });
+      (() => {
+        const patched = new WeakSet();
+        const originalToString = Function.prototype.toString;
+        Function.prototype.toString = function toString() {
+          if (this === Function.prototype.toString || patched.has(this)) {
+            return 'function ' + (this.name || '') + '() { [native code] }';
+          }
+          return originalToString.call(this);
+        };
+        patched.add(Function.prototype.toString);
 
-      Object.defineProperty(navigator, 'plugins', {
-        get: () => {
-          const arr = [
-            { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format', length: 1, item: () => null, namedItem: () => null },
-            { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '', length: 1, item: () => null, namedItem: () => null },
-            { name: 'Native Client', filename: 'internal-nacl-plugin', description: '', length: 2, item: () => null, namedItem: () => null },
-          ];
-          arr.item = (i) => arr[i] || null;
-          arr.namedItem = (n) => arr.find((p) => p.name === n) || null;
-          arr.refresh = () => {};
-          return arr;
-        },
-      });
+        const hide = (fn, name) => {
+          try {
+            Object.defineProperty(fn, 'name', { value: name, configurable: true });
+          } catch (err) { /* nom non modifiable */ }
+          patched.add(fn);
+          return fn;
+        };
 
-      window.chrome = {
-        app: { isInstalled: false, InstallState: {}, RunningState: {} },
-        runtime: {
-          OnInstalledReason: {}, OnRestartRequiredReason: {},
-          PlatformArch: {}, PlatformNaclArch: {}, PlatformOs: {}, RequestUpdateCheckStatus: {},
-          connect: () => ({ onMessage: { addListener: () => {} }, postMessage: () => {}, disconnect: () => {} }),
-          id: undefined,
-        },
-        csi: () => ({ startE: Date.now(), onloadT: Date.now(), pageT: 100, startT: Date.now(), tran: 15 }),
-        loadTimes: () => ({
-          commitLoadTime: Date.now() / 1000, connectionInfo: 'h2',
-          finishDocumentLoadTime: Date.now() / 1000, finishLoadTime: Date.now() / 1000,
-          firstPaintAfterLoadTime: 0, firstPaintTime: Date.now() / 1000,
-          navigationType: 'Other', npnNegotiatedProtocol: 'h2',
-          requestTime: Date.now() / 1000, startLoadTime: Date.now() / 1000,
-          wasAlternateProtocolAvailable: false, wasFetchedViaSpdy: true, wasNpnNegotiated: true,
-        }),
-      };
+        const VENDOR = ${JSON.stringify(vendor)};
+        const RENDERER = ${JSON.stringify(renderer)};
+        const patchWebGl = (proto) => {
+          if (!proto || typeof proto.getParameter !== 'function') return;
+          const original = proto.getParameter;
+          proto.getParameter = hide(function getParameter(parameter) {
+            if (parameter === 0x9245) return VENDOR;
+            if (parameter === 0x9246) return RENDERER;
+            return original.call(this, parameter);
+          }, 'getParameter');
+        };
+        patchWebGl(window.WebGLRenderingContext && WebGLRenderingContext.prototype);
+        patchWebGl(window.WebGL2RenderingContext && WebGL2RenderingContext.prototype);
 
-      // WebGL : le headless expose SwiftShader/Google Inc. — on masque
-      // avec un vendor/renderer Intel realiste.
-      const getParameter = WebGLRenderingContext.prototype.getParameter;
-      WebGLRenderingContext.prototype.getParameter = function (p) {
-        const UNMASKED_VENDOR_WEBGL = 0x9245;
-        const UNMASKED_RENDERER_WEBGL = 0x9246;
-        if (p === UNMASKED_VENDOR_WEBGL) return 'Google Inc. (Intel)';
-        if (p === UNMASKED_RENDERER_WEBGL)
-          return 'ANGLE (Intel, Intel(R) UHD Graphics 630 (0x00003E92) Direct3D11 vs_5_0 ps_5_0, D3D11)';
-        return getParameter.call(this, p);
-      };
+        // Headless renvoie « denied » pour les notifications. On réutilise un
+        // vrai PermissionStatus (prototype natif) en remplaçant seulement son
+        // état par « prompt », comme un profil Chrome neuf.
+        if (navigator.permissions && typeof navigator.permissions.query === 'function') {
+          const permissions = navigator.permissions;
+          const originalQuery = permissions.query.bind(permissions);
+          permissions.query = hide(function query(parameters) {
+            if (!parameters || parameters.name !== 'notifications') {
+              return originalQuery(parameters);
+            }
+            try {
+              return originalQuery({ name: 'geolocation' })
+                .then((status) => {
+                  try {
+                    Object.defineProperty(status, 'state', { value: 'prompt', configurable: true });
+                  } catch (err) { /* état non modifiable */ }
+                  return status;
+                })
+                .catch(() => originalQuery(parameters));
+            } catch (err) {
+              return originalQuery(parameters);
+            }
+          }, 'query');
+        }
 
-      // Permissions : headless renvoie « denied » par défaut.
-      if (navigator.permissions && navigator.permissions.query) {
-        const origQuery = navigator.permissions.query.bind(navigator.permissions);
-        navigator.permissions.query = (parameters) =>
-          parameters && parameters.name === 'notifications'
-            ? Promise.resolve({ state: 'default', status: 'prompt', onchange: null })
-            : origQuery(parameters);
-      }
-
-      // Dimensions fenêtre : le headless a outerWidth === innerWidth.
-      Object.defineProperty(window, 'outerWidth', { get: () => 1366 });
-      Object.defineProperty(window, 'outerHeight', { get: () => 1000 });
-
-      // Speech : le headless n'a aucune voix.
-      if (window.speechSynthesis) {
-        window.speechSynthesis.getVoices = () => [
-          { name: 'Microsoft French (France)', lang: 'fr-FR', localService: true, default: true, voiceURI: 'Microsoft French (France)' },
-        ];
-      }
-
-      // Connection : le headless n'a pas navigator.connection.
-      if (!navigator.connection) {
-        Object.defineProperty(navigator, 'connection', {
-          get: () => ({ effectiveType: '4g', rtt: 50, downlink: 10, saveData: false }),
-        });
-      }
+        const defineGetter = (target, property, value) => {
+          Object.defineProperty(target, property, {
+            get: hide(function () { return value; }, 'get ' + property),
+            configurable: true,
+          });
+        };
+        defineGetter(window, 'outerWidth', 1366);
+        defineGetter(window, 'outerHeight', 985);
+        const screenProto = Object.getPrototypeOf(window.screen) || window.screen;
+        defineGetter(screenProto, 'availWidth', 1920);
+        defineGetter(screenProto, 'availHeight', 1040);
+      })();
     `;
   }
 
@@ -683,7 +679,7 @@ export class ScraperService implements OnModuleDestroy {
             '--enable-features=NetworkService,NetworkServiceInProcess',
             '--enable-webgl',
             '--use-gl=angle',
-            '--use-angle=swiftshader-webgl',
+            '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
             '--lang=fr-FR',
           ],
         })
