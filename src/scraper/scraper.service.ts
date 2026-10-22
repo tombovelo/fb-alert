@@ -29,6 +29,17 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** Pause aléatoire « humaine » entre deux actions (500–2000 ms). */
 const humanDelay = () => sleep(500 + Math.floor(Math.random() * 1_500));
 
+/** Force l'ordre du plus récent au plus ancien sur les fils de groupe/page. */
+const withChronologicalSort = (url: string): string => {
+  try {
+    const parsed = new URL(url);
+    parsed.searchParams.set('sorting_setting', 'CHRONOLOGICAL');
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+};
+
 @Injectable()
 export class ScraperService implements OnModuleDestroy {
   private readonly logger = new Logger(ScraperService.name);
@@ -86,7 +97,11 @@ export class ScraperService implements OnModuleDestroy {
         };
       }
 
-      await this.navigate(page, source.url);
+      const targetUrl =
+        source.type === 'GROUP' || source.type === 'PAGE'
+          ? withChronologicalSort(source.url)
+          : source.url;
+      await this.navigate(page, targetUrl);
       const pageName = await readPageName(page);
 
       const candidates = await this.collect(
@@ -417,7 +432,21 @@ export class ScraperService implements OnModuleDestroy {
     const seenUrls = new Set<string>();
     const seenTexts = new Set<string>();
 
-    for (const candidate of candidates) {
+    // Posts datés d'abord (du plus récent au plus ancien), puis les posts
+    // sans date : ils ne doivent pas consommer une place dans la limite.
+    const ordered = candidates
+      .map((candidate, index) => ({ candidate, index }))
+      .sort((a, b) => {
+        const left = a.candidate.publishedAt?.getTime();
+        const right = b.candidate.publishedAt?.getTime();
+        if (left === undefined && right === undefined) return a.index - b.index;
+        if (left === undefined) return 1;
+        if (right === undefined) return -1;
+        return right - left || a.index - b.index;
+      })
+      .map((entry) => entry.candidate);
+
+    for (const candidate of ordered) {
       const text = candidate.text.trim();
       if (!text) continue;
 
