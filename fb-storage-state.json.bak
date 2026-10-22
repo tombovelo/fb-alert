@@ -2,20 +2,20 @@
   "cookies": [
     {
       "name": "c_user",
-      "value": "61595333998145",
+      "value": "100074047552763",
       "domain": ".facebook.com",
       "path": "/",
-      "expires": 1823920973,
+      "expires": 1824140503,
       "httpOnly": false,
       "secure": true,
       "sameSite": "None"
     },
     {
       "name": "datr",
-      "value": "53vKaju7JpuIOkzZS59WQ29i",
+      "value": "Wy7YavmD0b3z90YNNMQRwBy_",
       "domain": ".facebook.com",
       "path": "/",
-      "expires": 1826214887,
+      "expires": 1827112539,
       "httpOnly": true,
       "secure": true,
       "sameSite": "None"
@@ -25,17 +25,17 @@
       "value": "1.25",
       "domain": ".facebook.com",
       "path": "/",
-      "expires": 1792989768,
+      "expires": 1793209299,
       "httpOnly": false,
       "secure": true,
       "sameSite": "None"
     },
     {
       "name": "fr",
-      "value": "1BA6LVUSb3jLzJQKR.AWcw0jyNmj9s_UyNqqUwp-vVl5YY1MpWpzvwbUY7WLTJalBOF0k.Bq1Z_O..AAA.0.0.Bq1Z_O.AWehz9d1vvBPmCyM7qZDLyGCV5Y",
+      "value": "1SoZ4LPCteNNzqa8h.AWdPpG1nN-l_-ojIhvj0EP7lG7ZHdSoqFjafvfn_TyfF8_bkVPk.Bq2PlW..AAA.0.0.Bq2PlW.AWfZiIAH_KHRj2vAmzPhVbiL-kM",
       "domain": ".facebook.com",
       "path": "/",
-      "expires": 1800160973,
+      "expires": 1800380503,
       "httpOnly": true,
       "secure": true,
       "sameSite": "None"
@@ -65,7 +65,7 @@
       "value": "53vKajgMQCtn0kksk5O7VB3F",
       "domain": ".facebook.com",
       "path": "/",
-      "expires": 1826944968,
+      "expires": 1827164499,
       "httpOnly": true,
       "secure": true,
       "sameSite": "None"
@@ -75,17 +75,17 @@
       "value": "1536x730",
       "domain": ".facebook.com",
       "path": "/",
-      "expires": 1792988697,
+      "expires": 1793209287,
       "httpOnly": false,
       "secure": true,
       "sameSite": "Lax"
     },
     {
       "name": "xs",
-      "value": "31%3AAdHTGjWrlJccXA%3A2%3A1792384967%3A-1%3A-1%3A%3AAcy5_mOSQ1Y9WuFDDvYZZ6J1sEKA0bgSnBeX6_ssRA",
+      "value": "19%3AGNYoMwSjiLTIvQ%3A2%3A1792604497%3A-1%3A-1%3A%3AAcxoLqExpC_nfUjjaKYS7byOU5RjulRs1IfR-c6KEQ",
       "domain": ".facebook.com",
       "path": "/",
-      "expires": 1823920973,
+      "expires": 1824140503,
       "httpOnly": true,
       "secure": true,
       "sameSite": "None"
