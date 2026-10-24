@@ -73,12 +73,24 @@ async function extractFeedPosts(
         const image = root.querySelector<HTMLImageElement>(
           'a[href*="/photos/"] img, a[href*="/videos/"] img, img[srcset]',
         );
+        const isAvatar = (value: string | null | undefined): boolean =>
+          !!value &&
+          /\/t39\.30808-1\/|profile_pic|emoji|rsrc\.php|static\.xx\.fbcdn|s(?:32|40|50|60|80|100|120|160)x(?:32|40|50|60|80|100|120|160)/i.test(
+            value,
+          );
+        let imageUrl = image?.currentSrc || image?.src || null;
+        if (!imageUrl || isAvatar(imageUrl)) {
+          const better = Array.from(root.querySelectorAll<HTMLImageElement>('img'))
+            .map((img) => img.currentSrc || img.src)
+            .find((value) => !!value && !isAvatar(value));
+          imageUrl = better ?? null;
+        }
         return {
           text: (message?.innerText ?? root.innerText ?? '').trim(),
           href: link?.href ?? null,
           timeText: timeLink ? (timeLink.innerText ?? '').trim() : '',
           author: (author?.innerText ?? '').trim(),
-          imageUrl: image?.currentSrc || image?.src || null,
+          imageUrl,
           hasMessage: Boolean(message),
           linkCount: links.length,
         };

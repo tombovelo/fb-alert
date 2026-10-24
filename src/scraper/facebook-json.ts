@@ -464,22 +464,80 @@ function firstUrl(obj: Record<string, unknown>): string | undefined {
   return undefined;
 }
 
+/** Photos de publication (grand format) plutôt que vignettes de profil. */
+const POST_IMAGE_RE =
+  /\/t39\.30808-(?:6|9|15)\/|p(?:480|720|960)x|s(?:480|720|960)x/i;
+/** Avatars, emojis et ressources de l'interface : jamais l'image du post. */
+const AVATAR_IMAGE_RE =
+  /\/t39\.30808-1\/|profile_pic|emoji|rsrc\.php|static\.xx\.fbcdn|s(?:32|40|50|60|80|100|120|160)x(?:32|40|50|60|80|100|120|160)|\.fb\.keyframes|m1\/v\/t6\//i;
+/** Seules les vraies images (CDN Facebook / aperçu de lien) sont retenues. */
+const IMAGE_URL_RE =
+  /scontent|fbcdn\.net|safe_image\.php|\.(?:jpe?g|png|webp|gif)(?:[?#]|$)/i;
+/** Pages Facebook (profil, photo, story…) : ce ne sont pas des images. */
+const NON_IMAGE_URL_RE =
+  /(?:profile|photo|story|permalink|reel|watch|video)\.php|facebook\.com\/(?:groups|profile|photo)/i;
+/** Sous-arbres qui n'appartiennent jamais au contenu du post. */
+const SKIP_KEY_RE =
+  /comment|feedback|ufi|reaction|author|actor|owner|profile|navigation|seo|metadata|suggestion|related/i;
+/** Post partagé imbriqué : utilisé seulement si le post n'a pas sa photo. */
+const ATTACHED_STORY_RE = /attached_story/i;
+
+function imageScore(url: string): number {
+  if (!IMAGE_URL_RE.test(url) || NON_IMAGE_URL_RE.test(url)) return -1;
+  if (AVATAR_IMAGE_RE.test(url)) return -1;
+  if (POST_IMAGE_RE.test(url)) return 2;
+  return 1;
+}
+
 function firstImageUrl(obj: Record<string, unknown>): string | undefined {
   for (const key of IMAGE_KEYS) {
     const value = obj[key];
-    if (typeof value === 'string' && /^https?:\/\//.test(value)) return value;
+    if (typeof value === 'string' && /^https?:\/\//.test(value)) {
+      if (imageScore(value) > 0) return value;
+    }
     if (Array.isArray(value) && value.length > 0) {
       const nested = firstImageUrl({ image: value[0] });
       if (nested) return nested;
     }
     if (value && typeof value === 'object') {
       const nested = deepFindString(value, ['uri', 'url', 'src'], 3);
-      if (nested && /^https?:\/\//.test(nested)) return nested;
+      if (nested && /^https?:\/\//.test(nested) && imageScore(nested) > 0) {
+        return nested;
+      }
     }
   }
-  return undefined;
-}
 
+  // Parcours en largeur : l'image la plus proche du bloc du post est la
+  // sienne ; les images d'un post partagé ou d'un voisin sont plus loin.
+  const search = (allowAttachedStory: boolean): string | undefined => {
+    const queue: Array<{ node: unknown; depth: number }> = [{ node: obj, depth: 0 }];
+    const seen = new Set<unknown>();
+    let visited = 0;
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      if (current.depth > (allowAttachedStory ? 18 : 14) || visited > 20_000) break;
+      const node = current.node;
+      if (typeof node === 'string') {
+        visited += 1;
+        if (/^https?:\/\//.test(node) && imageScore(node) > 0) return node;
+        continue;
+      }
+      if (!node || typeof node !== 'object' || seen.has(node)) continue;
+      seen.add(node);
+      const entries = Array.isArray(node)
+        ? node.slice(0, 60).map((item) => ['', item] as const)
+        : Object.entries(node as Record<string, unknown>);
+      for (const [key, item] of entries) {
+        if (key && SKIP_KEY_RE.test(key)) continue;
+        if (!allowAttachedStory && key && ATTACHED_STORY_RE.test(key)) continue;
+        queue.push({ node: item, depth: current.depth + 1 });
+      }
+    }
+    return undefined;
+  };
+  // D'abord la photo propre au post ; à défaut, celle du post partagé.
+  return search(false) ?? search(true);
+}
 function extractText(obj: Record<string, unknown>): string {
   for (const key of TEXT_KEYS) {
     const value = obj[key];
