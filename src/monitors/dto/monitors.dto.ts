@@ -54,6 +54,13 @@ export class CreateMonitorDto {
   checkIntervalMinutes?: number;
 }
 
+export class SuggestSourcesQueryDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  q?: string;
+}
+
 export class UpdateMonitorDto {
   @IsOptional()
   @IsUrl({ require_tld: false, require_protocol: true })

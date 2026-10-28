@@ -7,6 +7,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { Role, User } from '@prisma/client';
@@ -14,7 +15,11 @@ import { ApiKeyUser } from '../common/decorators/api-key-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { MonitorsService } from './monitors.service';
-import { CreateMonitorDto, UpdateMonitorDto } from './dto/monitors.dto';
+import {
+  CreateMonitorDto,
+  SuggestSourcesQueryDto,
+  UpdateMonitorDto,
+} from './dto/monitors.dto';
 
 @Controller('monitors')
 export class MonitorsController {
@@ -23,6 +28,14 @@ export class MonitorsController {
   @Get()
   list(@ApiKeyUser() user: User) {
     return this.monitors.list(user);
+  }
+
+  @Get('sources/suggest')
+  suggestSources(
+    @ApiKeyUser() user: User,
+    @Query() query: SuggestSourcesQueryDto,
+  ) {
+    return this.monitors.suggestSources(user, query.q);
   }
 
   @Get('admin/overview')

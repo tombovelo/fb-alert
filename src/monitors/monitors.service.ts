@@ -55,6 +55,56 @@ export class MonitorsService {
     }));
   }
 
+  /**
+   * Suggestions pour le champ URL de « Nouvelle surveillance » : pages et
+   * groupes déjà connus, filtrés sur le nom et l'URL, en excluant les sources
+   * que l'utilisateur surveille déjà. 5 résultats maximum.
+   */
+  async suggestSources(user: User, rawQuery?: string) {
+    const q = (rawQuery ?? '').trim();
+    if (q.length === 0) return [];
+
+    const rows = await this.prisma.source.findMany({
+      where: {
+        type: { in: ['PAGE', 'GROUP'] },
+        OR: [
+          { name: { contains: q, mode: 'insensitive' } },
+          { url: { contains: q, mode: 'insensitive' } },
+        ],
+        monitors: { none: { userId: user.id } },
+      },
+      select: {
+        id: true,
+        url: true,
+        type: true,
+        name: true,
+        _count: { select: { monitors: true } },
+      },
+      orderBy: { monitors: { _count: 'desc' } },
+      take: 20,
+    });
+
+    const needle = q.toLowerCase();
+    const rank = (name: string | null) => {
+      const value = (name ?? '').toLowerCase();
+      if (value === needle) return 0;
+      if (value.startsWith(needle)) return 1;
+      if (value.includes(needle)) return 2;
+      return 3;
+    };
+
+    return rows
+      .slice()
+      .sort((a, b) => rank(a.name) - rank(b.name))
+      .slice(0, 5)
+      .map((row) => ({
+        id: row.id,
+        url: row.url,
+        type: row.type,
+        name: row.name ?? row.url,
+      }));
+  }
+
   async create(user: User, dto: CreateMonitorDto) {
     // L'admin n'est soumis à aucune limite d'abonnement.
     if (user.role !== 'ADMIN') {
