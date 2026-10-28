@@ -61,50 +61,75 @@ export function parseAiAnalysis(payload: string): AiAnalysis {
   };
 }
 
+/** Préfixes mobiles malgaches valides (036 exclu). */
+const MG_PREFIX = '3(?:[2-5]|[7-9])';
+/** Séparateur optionnel entre les groupes de chiffres d'un numéro. */
+const MG_SEP = '[\\s.\\-]?';
+
+/**
+ * Téléphone malgache : « 0 » (ou « +261 » / « 261 ») suivi de 9 chiffres,
+ * préfixe 32-35 ou 37-39. Les séparateurs (espace, point, tiret) sont tolérés.
+ */
+const MG_PHONE_SOURCE =
+  `(?<!\\d)(?:\\+?261|0)${MG_SEP}(${MG_PREFIX})${MG_SEP}(\\d{2})${MG_SEP}(\\d{3})${MG_SEP}(\\d{2})(?!\\d)`;
+
+const LOCAL_PHONE_DIGITS_RE = new RegExp(`^0${MG_PREFIX}`);
+const INTL_PHONE_DIGITS_RE = new RegExp(`^${MG_PREFIX}`);
+
 /** Un nombre ressemble-t-il à un numéro de téléphone (ex. 034 12 345 67) ? */
 export function looksLikePhone(value: number): boolean {
   const digits = String(Math.trunc(Math.abs(value)));
-  if (digits.length >= 10) return true;
-  if (digits.length === 9) {
-    // 0341234567 (avec 0) ou 341234567 (indicatif mobile 32-35 sans le 0).
-    return digits.startsWith('0') || /^[3][2-5]/.test(digits);
-  }
+  if (digits.length === 10) return LOCAL_PHONE_DIGITS_RE.test(digits);
+  if (digits.length === 9) return INTL_PHONE_DIGITS_RE.test(digits);
   return false;
 }
 
 /** Masque les numéros de téléphone du texte avant l'extraction des prix. */
 function maskPhones(text: string): string {
-  return text
-    .replace(/\+261[\s.\-]?\d[\d\s.\-]{4,}\d/g, ' ')
-    .replace(/(?<![\d.\-])0\d{2}[\s.\-]?\d{2}[\s.\-]?\d{3}[\s.\-]?\d{2}(?!\d)/g, ' ');
+  return text.replace(new RegExp(MG_PHONE_SOURCE, 'g'), ' ');
 }
 
 /** Numéro de téléphone malgache trouvé dans le texte, normalisé « 034 12 345 67 ». */
 export function detectPhone(text: string): string | null {
-  const intl = text.match(/\+261[\s.\-]?(\d{2})[\s.\-]?(\d{2})[\s.\-]?(\d{3})[\s.\-]?(\d{2})/);
-  if (intl) return `0${intl[1]} ${intl[2]} ${intl[3]} ${intl[4]}`;
-  const local = text.match(
-    /(?<![\d.\-])(0\d{2})[\s.\-]?(\d{2})[\s.\-]?(\d{3})[\s.\-]?(\d{2})(?!\d)/,
-  );
-  if (local) return `${local[1]} ${local[2]} ${local[3]} ${local[4]}`;
-  return null;
+  const match = new RegExp(MG_PHONE_SOURCE).exec(text);
+  if (!match) return null;
+  const [, prefix, a, b, c] = match;
+  return `0${prefix} ${a} ${b} ${c}`;
 }
 
-/** Tous les prix candidats du texte : nombres accompagnés d'une unité monétaire. */
+/**
+ * Convertit un montant écrit à la main en nombre : « 100,000 » et
+ * « 1 200 000 » sont des milliers, « 1,5 » reste une décimale.
+ */
+function parsePriceNumber(raw: string): number | null {
+  let value = raw.replace(/[\s\u00A0]/g, '');
+  if (/^\d{1,3}(?:,\d{3})+$/.test(value)) {
+    value = value.replace(/,/g, '');
+  } else if (/^\d{1,3}(?:\.\d{3})+$/.test(value)) {
+    value = value.replace(/\./g, '');
+  } else {
+    value = value.replace(',', '.');
+  }
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+/** Prix candidats : montants avec devise ou nombres groupés (100,000 / 1 200 000). */
 function priceCandidates(text: string): number[] {
   const clean = maskPhones(text);
   const patterns = [
     /(\d[\d\s.,]{0,14})\s*(ariary|ar|€|euros?|\$|usd|mga)(?![a-z])/gi,
     /(€|usd|\$|euros?|mga|ariary)\s*(\d[\d\s.,]{0,14})/gi,
     /(?:^|[^a-z])ar\.?\s*(\d[\d\s.,]{0,14})/gi,
+    /(\d{1,3}(?:[\s.,\u00A0]\d{3})+)/g,
   ];
   const values: number[] = [];
   for (const pattern of patterns) {
     for (const match of clean.matchAll(pattern)) {
       const raw = /^\d/.test(match[1] ?? '') ? match[1] : match[2];
       if (!raw) continue;
-      const value = Number.parseFloat(raw.replace(/[\s.]/g, '').replace(',', '.'));
-      if (!Number.isFinite(value) || value < 0) continue;
+      const value = parsePriceNumber(raw);
+      if (value === null) continue;
       if (looksLikePhone(value)) continue;
       values.push(value);
     }
@@ -112,7 +137,7 @@ function priceCandidates(text: string): number[] {
   return values;
 }
 
-/** Prix d'une annonce : le plus grand nombre avec unité trouvé dans le texte. */
+/** Prix d'une annonce : le plus grand montant (avec devise ou groupé) du texte. */
 export function detectPrice(text: string): number | null {
   const values = priceCandidates(text);
   if (values.length === 0) return null;
