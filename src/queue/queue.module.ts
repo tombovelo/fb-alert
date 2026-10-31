@@ -6,10 +6,16 @@ import { ScraperModule } from '../scraper/scraper.module';
 import { ScrapeQueueService } from './scraping-queue.service';
 import { ScrapingWorkerService } from './scraping-worker.service';
 import { SourceSchedulerService } from './source-scheduler.service';
+import { RetentionService } from './retention.service';
 
 @Module({
   imports: [ScraperModule, NamesModule, NotificationsModule, AnalyzerModule],
-  providers: [ScrapeQueueService, SourceSchedulerService, ScrapingWorkerService],
+  providers: [
+    ScrapeQueueService,
+    SourceSchedulerService,
+    ScrapingWorkerService,
+    RetentionService,
+  ],
   exports: [ScrapeQueueService],
 })
 export class QueueModule {}
