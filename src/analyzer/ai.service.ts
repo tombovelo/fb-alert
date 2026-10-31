@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 
 export interface AiCriteria {
   keywords: string[];
+  characteristics?: string[];
+  locations?: string[];
   negativeKeywords: string[];
   minPrice?: number | null;
   maxPrice?: number | null;
@@ -324,13 +326,24 @@ export class AiService {
       criteria.minPrice != null || criteria.maxPrice != null
         ? `Prix accepté : entre ${criteria.minPrice ?? 0} et ${criteria.maxPrice ?? 'illimité'}.`
         : 'Aucune contrainte de prix.';
+    const optionalLines = [
+      criteria.characteristics && criteria.characteristics.length > 0
+        ? `Caractéristiques souhaitées : ${criteria.characteristics.join(', ')}`
+        : null,
+      criteria.locations && criteria.locations.length > 0
+        ? `Lieux souhaités : ${criteria.locations.join(', ')}`
+        : null,
+    ].filter((line): line is string => line !== null);
 
     return [
       'Tu analyses une publication Facebook extraite automatiquement et tu dois dire si elle correspond aux critères de surveillance d\'un utilisateur.',
       '',
       `Mots-clés pertinents : ${criteria.keywords.join(', ')}`,
+      ...optionalLines,
       `Mots-clés excluants : ${criteria.negativeKeywords.join(', ') || '(aucun)'}`,
       priceRange,
+      '',
+      'Chaque catégorie renseignée (mots-clés, caractéristiques, lieux) doit être présente dans la publication.',
       '',
       'Publication :',
       '"""',

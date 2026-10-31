@@ -104,6 +104,8 @@ model UserMonitor {
   sourceId         String
   source           Source   @relation(fields: [sourceId], references: [id], onDelete: Cascade)
   keywords         String[]
+  characteristics  String[] @default([])
+  locations        String[] @default([])
   negativeKeywords String[]
   minPrice         Float?
   maxPrice         Float?

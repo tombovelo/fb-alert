@@ -8,6 +8,7 @@ import {
   IsString,
   IsUrl,
   ArrayMaxSize,
+  ArrayMinSize,
   Max,
   MaxLength,
   Min,
@@ -23,12 +24,30 @@ export class CreateMonitorDto {
   @IsEnum(SourceType)
   type?: SourceType;
 
+  @IsArray()
+  @IsString({ each: true })
+  @ArrayMinSize(1, {
+    message: 'Ajoutez au moins un mot dans « Ce que je cherche ».',
+  })
+  @ArrayMaxSize(10)
+  @MaxLength(100, { each: true })
+  keywords!: string[];
+
+  @IsArray()
+  @IsString({ each: true })
+  @ArrayMinSize(1, {
+    message: 'Ajoutez au moins un mot dans « Caractéristiques ».',
+  })
+  @ArrayMaxSize(10)
+  @MaxLength(100, { each: true })
+  characteristics!: string[];
+
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
-  @ArrayMaxSize(50)
+  @ArrayMaxSize(10)
   @MaxLength(100, { each: true })
-  keywords?: string[];
+  locations?: string[];
 
   @IsOptional()
   @IsArray()
@@ -74,9 +93,29 @@ export class UpdateMonitorDto {
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
-  @ArrayMaxSize(50)
+  @ArrayMinSize(1, {
+    message: 'Ajoutez au moins un mot dans « Ce que je cherche ».',
+  })
+  @ArrayMaxSize(10)
   @MaxLength(100, { each: true })
   keywords?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @ArrayMinSize(1, {
+    message: 'Ajoutez au moins un mot dans « Caractéristiques ».',
+  })
+  @ArrayMaxSize(10)
+  @MaxLength(100, { each: true })
+  characteristics?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @ArrayMaxSize(10)
+  @MaxLength(100, { each: true })
+  locations?: string[];
 
   @IsOptional()
   @IsArray()

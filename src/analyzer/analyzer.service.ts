@@ -73,6 +73,8 @@ export class AnalyzerService implements OnModuleInit, OnModuleDestroy {
     text: string,
     criteria: {
       keywords: string[];
+      characteristics?: string[];
+      locations?: string[];
       negativeKeywords: string[];
       minPrice: number | null;
       maxPrice: number | null;
@@ -83,6 +85,8 @@ export class AnalyzerService implements OnModuleInit, OnModuleDestroy {
     const payload = JSON.stringify({
       text,
       keywords: normalizeList(criteria.keywords),
+      characteristics: normalizeList(criteria.characteristics ?? []),
+      locations: normalizeList(criteria.locations ?? []),
       negativeKeywords: normalizeList(criteria.negativeKeywords),
       minPrice: criteria.minPrice ?? null,
       maxPrice: criteria.maxPrice ?? null,
@@ -144,8 +148,18 @@ export class AnalyzerService implements OnModuleInit, OnModuleDestroy {
 
       let aiErrors = 0;
       for (const monitor of monitors) {
-        // B. Filtre local : au moins un mot-clé positif et aucun négatif.
-        if (!matchesKeywords(post.text, monitor.keywords, monitor.negativeKeywords)) {
+        // B. Filtre local : une catégorie remplie = au moins un mot trouvé.
+        if (
+          !matchesKeywords(
+            post.text,
+            {
+              keywords: monitor.keywords,
+              characteristics: monitor.characteristics,
+              locations: monitor.locations,
+            },
+            monitor.negativeKeywords,
+          )
+        ) {
           stats.filtered += 1;
           continue;
         }
@@ -156,6 +170,8 @@ export class AnalyzerService implements OnModuleInit, OnModuleDestroy {
         if (monitor.user.aiEnabled) {
           const criteria = {
             keywords: monitor.keywords,
+            characteristics: monitor.characteristics,
+            locations: monitor.locations,
             negativeKeywords: monitor.negativeKeywords,
             minPrice: monitor.minPrice,
             maxPrice: monitor.maxPrice,

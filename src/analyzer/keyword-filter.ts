@@ -1,38 +1,59 @@
+export type KeywordGroups = {
+  keywords?: string[];
+  characteristics?: string[];
+  locations?: string[];
+};
+
+/**
+ * Prépare un texte pour la comparaison : minuscules, sans accents, et tous les
+ * espaces, retours à la ligne et signes de ponctuation réduits à un espace.
+ * « Trano,   à\nVENDRE ! » devient « trano a vendre ».
+ */
 export function normalizeForMatch(value: string): string {
   return value
     .toLowerCase()
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '');
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function cleanList(list: string[] | undefined): string[] {
+  return [
+    ...new Set(
+      (list ?? [])
+        .map((value) => normalizeForMatch(value))
+        .filter((value) => value !== ''),
+    ),
+  ];
 }
 
 /**
- * Nombre minimal de mots-clés à trouver selon le nombre saisi :
- * 1-3 -> 1, 4-6 -> 2, 7 et plus -> 3.
+ * Une publication correspond si, pour chaque catégorie remplie (mots-clés,
+ * caractéristiques, lieux), au moins un mot est trouvé. Une catégorie vide est
+ * ignorée. Un mot exclu présent rejette la publication.
  */
-export function minimumKeywordMatches(keywordCount: number): number {
-  if (keywordCount <= 3) return 1;
-  if (keywordCount <= 6) return 2;
-  return 3;
-}
-
 export function matchesKeywords(
   text: string,
-  keywords: string[],
+  groups: KeywordGroups,
   negativeKeywords: string[],
 ): boolean {
   const haystack = normalizeForMatch(text);
 
-  const blocked = negativeKeywords.some(
-    (keyword) => keyword.trim() !== '' && haystack.includes(normalizeForMatch(keyword)),
+  const blocked = cleanList(negativeKeywords).some((keyword) =>
+    haystack.includes(keyword),
   );
   if (blocked) return false;
 
-  // Doublons (insensibles à la casse/accents) comptés une seule fois.
-  const unique = [...new Set(
-    keywords.map((keyword) => normalizeForMatch(keyword.trim())).filter((keyword) => keyword !== ''),
-  )];
-  if (unique.length === 0) return false;
+  const categories = [
+    cleanList(groups.keywords),
+    cleanList(groups.characteristics),
+    cleanList(groups.locations),
+  ].filter((words) => words.length > 0);
 
-  const found = unique.filter((keyword) => haystack.includes(keyword)).length;
-  return found >= minimumKeywordMatches(unique.length);
+  if (categories.length === 0) return false;
+
+  return categories.every((words) =>
+    words.some((word) => haystack.includes(word)),
+  );
 }

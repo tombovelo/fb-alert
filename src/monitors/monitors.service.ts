@@ -180,6 +180,8 @@ export class MonitorsService {
           userId: user.id,
           sourceId: source.id,
           keywords: dto.keywords ?? [],
+          characteristics: dto.characteristics ?? [],
+          locations: dto.locations ?? [],
           negativeKeywords: dto.negativeKeywords ?? [],
           minPrice: dto.minPrice,
           maxPrice: dto.maxPrice,
@@ -286,6 +288,8 @@ export class MonitorsService {
       where: { id },
       data: {
         keywords: dto.keywords,
+        characteristics: dto.characteristics,
+        locations: dto.locations,
         negativeKeywords: dto.negativeKeywords,
         minPrice: dto.minPrice,
         maxPrice: dto.maxPrice,
