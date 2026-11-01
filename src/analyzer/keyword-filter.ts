@@ -29,19 +29,28 @@ function cleanList(list: string[] | undefined): string[] {
 }
 
 /**
+ * Supprime les espaces pour comparer : « 67 ha » et « 67ha » deviennent
+ * identiques, de même que « bord de route » et « bordderoute ».
+ */
+export function compactForMatch(value: string): string {
+  return value.replace(/ /g, '');
+}
+
+/**
  * Une publication correspond si, pour chaque catégorie remplie (mots-clés,
  * caractéristiques, lieux), au moins un mot est trouvé. Une catégorie vide est
- * ignorée. Un mot exclu présent rejette la publication.
+ * ignorée. Un mot exclu présent rejette la publication. La comparaison ignore
+ * les espaces.
  */
 export function matchesKeywords(
   text: string,
   groups: KeywordGroups,
   negativeKeywords: string[],
 ): boolean {
-  const haystack = normalizeForMatch(text);
+  const haystack = compactForMatch(normalizeForMatch(text));
 
   const blocked = cleanList(negativeKeywords).some((keyword) =>
-    haystack.includes(keyword),
+    haystack.includes(compactForMatch(keyword)),
   );
   if (blocked) return false;
 
@@ -54,6 +63,6 @@ export function matchesKeywords(
   if (categories.length === 0) return false;
 
   return categories.every((words) =>
-    words.some((word) => haystack.includes(word)),
+    words.some((word) => haystack.includes(compactForMatch(word))),
   );
 }
