@@ -43,6 +43,12 @@ export class CreateMonitorDto {
   characteristics!: string[];
 
   @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(10)
+  characteristicsMin?: number;
+
+  @IsOptional()
   @IsArray()
   @IsString({ each: true })
   @ArrayMaxSize(10)
@@ -109,6 +115,12 @@ export class UpdateMonitorDto {
   @ArrayMaxSize(10)
   @MaxLength(100, { each: true })
   characteristics?: string[];
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(10)
+  characteristicsMin?: number;
 
   @IsOptional()
   @IsArray()

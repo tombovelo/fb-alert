@@ -1,6 +1,7 @@
 export type KeywordGroups = {
   keywords?: string[];
   characteristics?: string[];
+  characteristicsMin?: number;
   locations?: string[];
 };
 
@@ -37,10 +38,13 @@ export function compactForMatch(value: string): string {
 }
 
 /**
- * Une publication correspond si, pour chaque catégorie remplie (mots-clés,
- * caractéristiques, lieux), au moins un mot est trouvé. Une catégorie vide est
- * ignorée. Un mot exclu présent rejette la publication. La comparaison ignore
- * les espaces.
+ * Une publication correspond si :
+ * - au moins un mot de « Cherche » est trouvé (si la catégorie est remplie) ;
+ * - au moins un mot de « Lieu » est trouvé (si la catégorie est remplie) ;
+ * - au moins `characteristicsMin` mots de « Caractéristiques » sont trouvés
+ *   (1 par défaut, jamais plus que le nombre de mots saisis).
+ * Une catégorie vide est ignorée. Un mot exclu présent rejette la publication.
+ * La comparaison ignore les espaces.
  */
 export function matchesKeywords(
   text: string,
@@ -48,21 +52,28 @@ export function matchesKeywords(
   negativeKeywords: string[],
 ): boolean {
   const haystack = compactForMatch(normalizeForMatch(text));
+  const contains = (word: string) => haystack.includes(compactForMatch(word));
 
-  const blocked = cleanList(negativeKeywords).some((keyword) =>
-    haystack.includes(compactForMatch(keyword)),
-  );
+  const blocked = cleanList(negativeKeywords).some(contains);
   if (blocked) return false;
 
-  const categories = [
-    cleanList(groups.keywords),
-    cleanList(groups.characteristics),
-    cleanList(groups.locations),
-  ].filter((words) => words.length > 0);
+  const keywords = cleanList(groups.keywords);
+  const characteristics = cleanList(groups.characteristics);
+  const locations = cleanList(groups.locations);
 
-  if (categories.length === 0) return false;
+  if (keywords.length === 0 && characteristics.length === 0 && locations.length === 0) {
+    return false;
+  }
 
-  return categories.every((words) =>
-    words.some((word) => haystack.includes(compactForMatch(word))),
-  );
+  if (keywords.length > 0 && !keywords.some(contains)) return false;
+  if (locations.length > 0 && !locations.some(contains)) return false;
+
+  if (characteristics.length > 0) {
+    const requested = Math.floor(groups.characteristicsMin ?? 1);
+    const required = Math.min(Math.max(1, requested), characteristics.length);
+    const found = characteristics.filter(contains).length;
+    if (found < required) return false;
+  }
+
+  return true;
 }

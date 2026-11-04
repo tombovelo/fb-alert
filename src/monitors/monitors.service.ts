@@ -181,6 +181,10 @@ export class MonitorsService {
           sourceId: source.id,
           keywords: dto.keywords ?? [],
           characteristics: dto.characteristics ?? [],
+          characteristicsMin: this.clampCharacteristicsMin(
+            dto.characteristicsMin,
+            (dto.characteristics ?? []).length,
+          ),
           locations: dto.locations ?? [],
           negativeKeywords: dto.negativeKeywords ?? [],
           minPrice: dto.minPrice,
@@ -273,6 +277,14 @@ export class MonitorsService {
     );
   }
 
+  private clampCharacteristicsMin(
+    value: number | undefined,
+    wordCount: number,
+  ): number {
+    const requested = Number.isFinite(value) ? Math.floor(value as number) : 1;
+    return Math.min(Math.max(1, requested), Math.max(1, wordCount));
+  }
+
   async update(user: User, id: string, dto: UpdateMonitorDto) {
     const owned = await this.owned(user, id);
     const isKept = (await this.keptMonitorId(user.id)) === id;
@@ -289,6 +301,13 @@ export class MonitorsService {
       data: {
         keywords: dto.keywords,
         characteristics: dto.characteristics,
+        characteristicsMin:
+          dto.characteristicsMin !== undefined || dto.characteristics !== undefined
+            ? this.clampCharacteristicsMin(
+                dto.characteristicsMin ?? owned.characteristicsMin,
+                (dto.characteristics ?? owned.characteristics).length,
+              )
+            : undefined,
         locations: dto.locations,
         negativeKeywords: dto.negativeKeywords,
         minPrice: dto.minPrice,

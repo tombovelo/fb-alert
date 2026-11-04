@@ -148,13 +148,15 @@ export class AnalyzerService implements OnModuleInit, OnModuleDestroy {
 
       let aiErrors = 0;
       for (const monitor of monitors) {
-        // B. Filtre local : une catégorie remplie = au moins un mot trouvé.
+        // B. Filtre local : Cherche/Lieu = au moins un mot ; Caractéristiques =
+        // au moins `characteristicsMin` mots.
         if (
           !matchesKeywords(
             post.text,
             {
               keywords: monitor.keywords,
               characteristics: monitor.characteristics,
+              characteristicsMin: monitor.characteristicsMin,
               locations: monitor.locations,
             },
             monitor.negativeKeywords,
