@@ -7,6 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { SourceType, User } from '@prisma/client';
+import { AnalyzerService } from '../analyzer/analyzer.service';
 import { guessSourceType } from '../common/facebook-url';
 import { PrismaService } from '../prisma/prisma.service';
 import { ScrapeQueueService } from '../queue/scraping-queue.service';
@@ -27,6 +28,7 @@ export class MonitorsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly queue: ScrapeQueueService,
+    private readonly analyzer: AnalyzerService,
   ) { }
 
   async list(user: User) {
@@ -175,7 +177,7 @@ export class MonitorsService {
     }
 
     try {
-      return await this.prisma.userMonitor.create({
+      const created = await this.prisma.userMonitor.create({
         data: {
           userId: user.id,
           sourceId: source.id,
@@ -192,6 +194,9 @@ export class MonitorsService {
         },
         include: { source: true },
       });
+      // Rattrapage des publications déjà stockées pour ne rien rater.
+      this.analyzer.scheduleBackfill(created.id);
+      return created;
     } catch (err) {
       // Course : ce même moniteur a été créé entre-temps →409 propre.
       if ((err as { code?: string }).code === 'P2002') {
@@ -285,11 +290,30 @@ export class MonitorsService {
     return Math.min(Math.max(1, requested), Math.max(1, wordCount));
   }
 
+  private sameList(values: string[] | undefined, current: string[]): boolean {
+    if (values === undefined) return true;
+    if (values.length !== current.length) return false;
+    return values.every((value, index) => value === current[index]);
+  }
+
   async update(user: User, id: string, dto: UpdateMonitorDto) {
     const owned = await this.owned(user, id);
     const isKept = (await this.keptMonitorId(user.id)) === id;
     this.guardReactivation(user, owned, dto.isActive, isKept);
     this.guardEditIfLapsed(user, isKept);
+    const nextMin = this.clampCharacteristicsMin(
+      dto.characteristicsMin ?? owned.characteristicsMin,
+      (dto.characteristics ?? owned.characteristics).length,
+    );
+    const criteriaChanged =
+      !this.sameList(dto.keywords, owned.keywords) ||
+      !this.sameList(dto.characteristics, owned.characteristics) ||
+      !this.sameList(dto.locations, owned.locations) ||
+      !this.sameList(dto.negativeKeywords, owned.negativeKeywords) ||
+      (dto.minPrice !== undefined && dto.minPrice !== owned.minPrice) ||
+      (dto.maxPrice !== undefined && dto.maxPrice !== owned.maxPrice) ||
+      (dto.characteristicsMin !== undefined &&
+        nextMin !== owned.characteristicsMin);
     const { sourceId, retiredSourceId } = await this.retargetSource(
       user,
       owned.sourceId,
@@ -337,6 +361,16 @@ export class MonitorsService {
       await this.queue.addScrapeJob(sourceId).catch((err: Error) => {
         this.logger.warn(`Job immédiat non enfilé après changement d'URL : ${err.message}`);
       });
+    }
+
+    if (criteriaChanged) {
+      // Les anciennes alertes ne correspondent peut-être plus : on repart de
+      // zéro pour cette surveillance, puis on réanalyse les publications
+      // stockées avec les nouveaux critères.
+      await this.prisma.matchedPost.deleteMany({ where: { userMonitorId: id } });
+    }
+    if (criteriaChanged || retiredSourceId) {
+      this.analyzer.scheduleBackfill(id);
     }
 
     return monitor;

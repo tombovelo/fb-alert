@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Source } from '@prisma/client';
+import { Source, UserMonitor } from '@prisma/client';
 import IORedis from 'ioredis';
 import { PrismaService } from '../prisma/prisma.service';
 import { ScrapedPost } from '../scraper/scraper.types';
@@ -24,9 +24,16 @@ export interface AnalysisStats {
 
 }
 
+type MonitorForAnalysis = UserMonitor & { user: { aiEnabled: boolean } };
+
+const BACKFILL_DAYS = 30;
+const BACKFILL_BATCH_SIZE = 200;
+
 @Injectable()
 export class AnalyzerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(AnalyzerService.name);
+  private readonly backfills = new Map<string, Promise<void>>();
+  private readonly backfillGeneration = new Map<string, number>();
   private redis?: IORedis;
 
   constructor(
@@ -166,116 +173,21 @@ export class AnalyzerService implements OnModuleInit, OnModuleDestroy {
           continue;
         }
 
-        // C. Analyse sémantique (NVIDIA puis Gemini), avec cache partagé
-        // entre monitors aux critères strictement identiques.
-        let analysis: AiAnalysis;
-        if (monitor.user.aiEnabled) {
-          const criteria = {
-            keywords: monitor.keywords,
-            characteristics: monitor.characteristics,
-            locations: monitor.locations,
-            negativeKeywords: monitor.negativeKeywords,
-            minPrice: monitor.minPrice,
-            maxPrice: monitor.maxPrice,
-          };
-          const cacheKey = this.aiCacheKey(post.text, criteria);
-          try {
-            const cached = await this.readAiCache(cacheKey);
-            if (cached) {
-              analysis = { ...cached };
-              stats.aiCacheHits += 1;
-            } else {
-              analysis = await this.ai.analyze(post.text, criteria);
-              stats.aiCalls += 1;
-              // Réponse brute stockée (avant fusion de prix, propre à ce post).
-              await this.writeAiCache(cacheKey, analysis);
-            }
-            // Prix final : le plus grand nombre détecté (IA ou regex locale),
-            // les numéros de téléphone sont écartés.
-            const iaPrice =
-              analysis.extractedPrice !== null && !looksLikePhone(analysis.extractedPrice)
-                ? analysis.extractedPrice
-                : null;
-            const localPrice = detectPrice(post.text);
-            analysis.extractedPrice =
-              iaPrice !== null && localPrice !== null
-                ? Math.max(iaPrice, localPrice)
-                : (iaPrice ?? localPrice);
-          } catch (err) {
-            aiErrors += 1;
-            this.logger.warn(
-              `IA en échec sur ${post.facebookPostId}: ${(err as Error).message}`,
-            );
-            continue;
-          }
-        } else {
-          // Interrupteur IA désactivé : le filtre mots-clés ci-dessus suffit,
-          // prix extrait localement, sans résumé ni confiance.
-          analysis = {
-            isMatch: true,
-            extractedPrice: detectPrice(post.text),
-            summary: null,
-            confidence: null,
-          };
+        // C. Analyse sémantique (IA si activée) + enregistrement du match.
+        try {
+          const matched = await this.processCandidate(
+            post.text,
+            processed?.id ?? null,
+            monitor,
+            stats,
+          );
+          if (matched) stats.matched += 1;
+        } catch (err) {
+          aiErrors += 1;
+          this.logger.warn(
+            `IA en échec sur ${post.facebookPostId}: ${(err as Error).message}`,
+          );
         }
-
-        // Résultat complet de l'IA (match ou non) conservé par monitor.
-        if (processed) {
-          await this.prisma.postAnalysis.upsert({
-            where: {
-              processedPostId_userMonitorId: {
-                processedPostId: processed.id,
-                userMonitorId: monitor.id,
-              },
-            },
-            update: {
-              isMatch: analysis.isMatch,
-              extractedPrice: analysis.extractedPrice,
-              summary: analysis.summary,
-              confidence: analysis.confidence,
-            },
-            create: {
-              processedPostId: processed.id,
-              userMonitorId: monitor.id,
-              isMatch: analysis.isMatch,
-              extractedPrice: analysis.extractedPrice,
-              summary: analysis.summary,
-              confidence: analysis.confidence,
-            },
-          });
-        }
-
-        if (!analysis.isMatch) continue;
-        if (!this.priceInRange(analysis.extractedPrice, monitor.minPrice, monitor.maxPrice)) {
-          continue;
-        }
-        if (!processed) continue;
-
-        // D. Enregistrement du match.
-        await this.prisma.matchedPost.upsert({
-          where: {
-            processedPostId_userMonitorId: {
-              processedPostId: processed.id,
-              userMonitorId: monitor.id,
-            },
-          },
-          update: { confidence: analysis.confidence },
-          create: {
-            processedPostId: processed.id,
-            userMonitorId: monitor.id,
-            confidence: analysis.confidence,
-          },
-        });
-        await this.prisma.processedPost.update({
-          where: { id: processed.id },
-          data: {
-            ...(analysis.summary !== null ? { aiSummary: analysis.summary } : {}),
-            ...(analysis.extractedPrice !== null
-              ? { extractedPrice: analysis.extractedPrice }
-              : {}),
-          },
-        });
-        stats.matched += 1;
       }
 
       // Échec IA (ex. 503 persistant) : on retire la marque "vu" pour que le
@@ -299,6 +211,223 @@ export class AnalyzerService implements OnModuleInit, OnModuleDestroy {
     }
 
     return stats;
+  }
+
+  /**
+   * Analyse un texte pour un monitor et enregistre le résultat (PostAnalysis,
+   * MatchedPost). Retourne true si une alerte est créée ou mise à jour.
+   * Lève une erreur si l'IA est activée et échoue.
+   */
+  private async processCandidate(
+    text: string,
+    processedId: string | null,
+    monitor: MonitorForAnalysis,
+    stats: AnalysisStats,
+  ): Promise<boolean> {
+    let analysis: AiAnalysis;
+    if (monitor.user.aiEnabled) {
+      const criteria = {
+        keywords: monitor.keywords,
+        characteristics: monitor.characteristics,
+        locations: monitor.locations,
+        negativeKeywords: monitor.negativeKeywords,
+        minPrice: monitor.minPrice,
+        maxPrice: monitor.maxPrice,
+      };
+      const cacheKey = this.aiCacheKey(text, criteria);
+      const cached = await this.readAiCache(cacheKey);
+      if (cached) {
+        analysis = { ...cached };
+        stats.aiCacheHits += 1;
+      } else {
+        analysis = await this.ai.analyze(text, criteria);
+        stats.aiCalls += 1;
+        // Réponse brute stockée (avant fusion de prix, propre à ce post).
+        await this.writeAiCache(cacheKey, analysis);
+      }
+      // Prix final : le plus grand nombre détecté (IA ou regex locale),
+      // les numéros de téléphone sont écartés.
+      const iaPrice =
+        analysis.extractedPrice !== null && !looksLikePhone(analysis.extractedPrice)
+          ? analysis.extractedPrice
+          : null;
+      const localPrice = detectPrice(text);
+      analysis.extractedPrice =
+        iaPrice !== null && localPrice !== null
+          ? Math.max(iaPrice, localPrice)
+          : (iaPrice ?? localPrice);
+    } else {
+      // Interrupteur IA désactivé : le filtre mots-clés suffit, prix extrait
+      // localement, sans résumé ni confiance.
+      analysis = {
+        isMatch: true,
+        extractedPrice: detectPrice(text),
+        summary: null,
+        confidence: null,
+      };
+    }
+
+    // Résultat complet de l'IA (match ou non) conservé par monitor.
+    if (processedId) {
+      await this.prisma.postAnalysis.upsert({
+        where: {
+          processedPostId_userMonitorId: {
+            processedPostId: processedId,
+            userMonitorId: monitor.id,
+          },
+        },
+        update: {
+          isMatch: analysis.isMatch,
+          extractedPrice: analysis.extractedPrice,
+          summary: analysis.summary,
+          confidence: analysis.confidence,
+        },
+        create: {
+          processedPostId: processedId,
+          userMonitorId: monitor.id,
+          isMatch: analysis.isMatch,
+          extractedPrice: analysis.extractedPrice,
+          summary: analysis.summary,
+          confidence: analysis.confidence,
+        },
+      });
+    }
+
+    if (!analysis.isMatch) return false;
+    if (!this.priceInRange(analysis.extractedPrice, monitor.minPrice, monitor.maxPrice)) {
+      return false;
+    }
+    if (!processedId) return false;
+
+    // Enregistrement du match.
+    await this.prisma.matchedPost.upsert({
+      where: {
+        processedPostId_userMonitorId: {
+          processedPostId: processedId,
+          userMonitorId: monitor.id,
+        },
+      },
+      update: { confidence: analysis.confidence },
+      create: {
+        processedPostId: processedId,
+        userMonitorId: monitor.id,
+        confidence: analysis.confidence,
+      },
+    });
+    await this.prisma.processedPost.update({
+      where: { id: processedId },
+      data: {
+        ...(analysis.summary !== null ? { aiSummary: analysis.summary } : {}),
+        ...(analysis.extractedPrice !== null
+          ? { extractedPrice: analysis.extractedPrice }
+          : {}),
+      },
+    });
+    return true;
+  }
+
+  /**
+   * Programme le rattrapage d'un monitor en arrière-plan. Les demandes
+   * successives pour le même monitor sont sérialisées (jamais deux à la fois).
+   */
+  scheduleBackfill(monitorId: string): void {
+    const generation = (this.backfillGeneration.get(monitorId) ?? 0) + 1;
+    this.backfillGeneration.set(monitorId, generation);
+    const previous = this.backfills.get(monitorId) ?? Promise.resolve();
+    const next = previous
+      .catch(() => undefined)
+      .then(() => this.backfillMonitor(monitorId, generation))
+      .catch((err: Error) =>
+        this.logger.warn(`Rattrapage ${monitorId} échoué: ${err.message}`),
+      )
+      .finally(() => {
+        if (this.backfills.get(monitorId) === next) {
+          this.backfills.delete(monitorId);
+        }
+      });
+    this.backfills.set(monitorId, next);
+  }
+
+  /**
+   * Analyse les publications déjà stockées (30 derniers jours) de la source
+   * d'un monitor, avec le même traitement que le scraping normal. Une demande
+   * plus récente pour le même monitor annule celle-ci (critères changés).
+   */
+  async backfillMonitor(monitorId: string, generation: number): Promise<void> {
+    const monitor = await this.prisma.userMonitor.findUnique({
+      where: { id: monitorId },
+      include: { user: { select: { aiEnabled: true } } },
+    });
+    if (!monitor || !monitor.isActive) return;
+    if (this.backfillGeneration.get(monitorId) !== generation) return;
+
+    const cutoff = new Date(Date.now() - BACKFILL_DAYS * 24 * 60 * 60 * 1000);
+    const stats: AnalysisStats = {
+      total: 0,
+      alreadySeen: 0,
+      filtered: 0,
+      aiCalls: 0,
+      aiCacheHits: 0,
+      matched: 0,
+      retryQueued: 0,
+    };
+    let cursor: string | undefined;
+
+    for (;;) {
+      const posts = await this.prisma.processedPost.findMany({
+        where: {
+          sourceId: monitor.sourceId,
+          createdAt: { gte: cutoff },
+          ...(cursor ? { id: { lt: cursor } } : {}),
+        },
+        orderBy: { id: 'desc' },
+        select: { id: true, rawContent: true, facebookPostId: true },
+        take: BACKFILL_BATCH_SIZE,
+      });
+      if (posts.length === 0) break;
+
+      for (const post of posts) {
+        if (this.backfillGeneration.get(monitorId) !== generation) return;
+        stats.total += 1;
+        if (
+          !matchesKeywords(
+            post.rawContent,
+            {
+              keywords: monitor.keywords,
+              characteristics: monitor.characteristics,
+              characteristicsMin: monitor.characteristicsMin,
+              locations: monitor.locations,
+            },
+            monitor.negativeKeywords,
+          )
+        ) {
+          stats.filtered += 1;
+          continue;
+        }
+        try {
+          const matched = await this.processCandidate(
+            post.rawContent,
+            post.id,
+            monitor,
+            stats,
+          );
+          if (matched) stats.matched += 1;
+        } catch (err) {
+          this.logger.warn(
+            `Rattrapage ${monitorId} sur ${post.facebookPostId}: ${(err as Error).message}`,
+          );
+        }
+      }
+
+      cursor = posts[posts.length - 1].id;
+      if (posts.length < BACKFILL_BATCH_SIZE) break;
+    }
+
+    this.logger.log(
+      `Rattrapage ${monitorId}: ${stats.total} publication(s) vérifiée(s), ` +
+      `${stats.filtered} rejet(s) filtre, ${stats.aiCalls} appel(s) IA ` +
+      `(${stats.aiCacheHits} cache), ${stats.matched} alerte(s).`,
+    );
   }
 
   private priceInRange(
