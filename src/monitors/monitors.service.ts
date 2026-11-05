@@ -282,6 +282,23 @@ export class MonitorsService {
     );
   }
 
+  /**
+   * Période d'essai, abonnement expiré ou résilié : la suppression des
+   * surveillances est désactivée (l'utilisateur doit se réabonner).
+   */
+  private guardDeleteIfNotActive(user: User) {
+    if (user.role === 'ADMIN') return;
+    if (
+      user.subscriptionStatus === 'TRIAL' ||
+      user.subscriptionStatus === 'EXPIRED' ||
+      user.subscriptionStatus === 'CANCELLED'
+    ) {
+      throw new ForbiddenException(
+        'Période d’essai, abonnement expiré ou résilié : la suppression des surveillances est désactivée. Réabonnez-vous pour les gérer.',
+      );
+    }
+  }
+
   private clampCharacteristicsMin(
     value: number | undefined,
     wordCount: number,
@@ -483,6 +500,7 @@ export class MonitorsService {
 
   async remove(user: User, id: string) {
     const monitor = await this.owned(user, id);
+    this.guardDeleteIfNotActive(user);
     await this.prisma.userMonitor.delete({ where: { id } });
 
     const remaining = await this.prisma.userMonitor.count({
