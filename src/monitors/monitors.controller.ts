@@ -38,11 +38,52 @@ export class MonitorsController {
     return this.monitors.suggestSources(user, query.q);
   }
 
-  @Get('admin/overview')
+  @Get('admin/users/:userId')
   @Roles(Role.ADMIN)
   @UseGuards(RolesGuard)
-  adminOverview() {
-    return this.monitors.adminOverview();
+  adminListForUser(@Param('userId', ParseUUIDPipe) userId: string) {
+    return this.monitors.adminListForUser(userId);
+  }
+
+  @Post('admin/users/:userId')
+  @Roles(Role.ADMIN)
+  @UseGuards(RolesGuard)
+  adminCreateForUser(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Body() dto: CreateMonitorDto,
+  ) {
+    return this.monitors.adminCreateForUser(userId, dto);
+  }
+
+  @Patch('admin/users/:userId/:id')
+  @Roles(Role.ADMIN)
+  @UseGuards(RolesGuard)
+  adminUpdateForUser(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateMonitorDto,
+  ) {
+    return this.monitors.adminUpdateForUser(userId, id, dto);
+  }
+
+  @Post('admin/users/:userId/:id/reactivate')
+  @Roles(Role.ADMIN)
+  @UseGuards(RolesGuard)
+  adminReactivateForUser(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.monitors.adminReactivateForUser(userId, id);
+  }
+
+  @Delete('admin/users/:userId/:id')
+  @Roles(Role.ADMIN)
+  @UseGuards(RolesGuard)
+  adminRemoveForUser(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.monitors.adminRemoveForUser(userId, id);
   }
 
   @Delete('admin/sources/:id')
