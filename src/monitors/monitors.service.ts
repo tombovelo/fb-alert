@@ -237,17 +237,10 @@ export class MonitorsService {
     isKept = false,
   ) {
     if (user.role === 'ADMIN' || requested !== true) return;
-    if (
-      user.subscriptionStatus !== 'EXPIRED' &&
-      user.subscriptionStatus !== 'CANCELLED'
-    ) {
-      return;
-    }
     if (isKept) return;
-    // Seule la désactivation (pause) est autorisée ; la réactivation est refusée.
     if (monitor.isActive === false) {
       throw new ForbiddenException(
-        'Abonnement expiré ou résilié : réabonnez-vous pour réactiver vos surveillances.',
+        'Cette surveillance est en lecture seule.',
       );
     }
   }
@@ -268,17 +261,35 @@ export class MonitorsService {
     return oldest?.id ?? null;
   }
 
+  private monitorLimit(user: User): number {
+    if (user.role === 'ADMIN') return Infinity;
+    let status = user.subscriptionStatus;
+    if (
+      status === 'ACTIVE' &&
+      user.subscriptionExpiresAt &&
+      user.subscriptionExpiresAt < new Date()
+    ) {
+      status = 'EXPIRED';
+    }
+    return MONITOR_LIMITS[status] ?? 1;
+  }
+
+  private async keptMonitorIds(userId: string, limit: number): Promise<Set<string>> {
+    if (!Number.isFinite(limit)) return new Set();
+    const rows = await this.prisma.userMonitor.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true },
+      take: limit,
+    });
+    return new Set(rows.map((r) => r.id));
+  }
+
   private guardEditIfLapsed(user: User, isKept: boolean) {
     if (user.role === 'ADMIN') return;
-    if (
-      user.subscriptionStatus !== 'EXPIRED' &&
-      user.subscriptionStatus !== 'CANCELLED'
-    ) {
-      return;
-    }
     if (isKept) return;
     throw new ForbiddenException(
-      'Abonnement expiré ou résilié : cette surveillance est en lecture seule. Réabonnez-vous pour la modifier.',
+      'Cette surveillance est en lecture seule.',
     );
   }
 
@@ -315,7 +326,9 @@ export class MonitorsService {
 
   async update(user: User, id: string, dto: UpdateMonitorDto) {
     const owned = await this.owned(user, id);
-    const isKept = (await this.keptMonitorId(user.id)) === id;
+    const isKept =
+      user.role === 'ADMIN' ||
+      (await this.keptMonitorIds(user.id, this.monitorLimit(user))).has(id);
     this.guardReactivation(user, owned, dto.isActive, isKept);
     this.guardEditIfLapsed(user, isKept);
     const nextMin = this.clampCharacteristicsMin(
@@ -469,7 +482,9 @@ export class MonitorsService {
    */
   async reactivate(user: User, id: string) {
     const monitor = await this.owned(user, id);
-    const isKept = (await this.keptMonitorId(user.id)) === id;
+    const isKept =
+      user.role === 'ADMIN' ||
+      (await this.keptMonitorIds(user.id, this.monitorLimit(user))).has(id);
     this.guardReactivation(user, monitor, true, isKept);
     const source = await this.prisma.source.findUnique({
       where: { id: monitor.sourceId },

@@ -273,11 +273,59 @@ export class UserService {
     if (!user) {
       throw new NotFoundException('Utilisateur introuvable.');
     }
-    return this.prisma.user.update({
+
+    const wasAdmin = user.role === 'ADMIN';
+    const updated = await this.prisma.user.update({
       where: { id },
       data: { role },
       select: { id: true, email: true, role: true },
     });
+
+    // Rétrogradation ADMIN -> USER : réconcilier les surveillances.
+    if (wasAdmin && role === 'USER') {
+      const subscribed =
+        user.subscriptionStatus === 'ACTIVE' &&
+        (!user.subscriptionExpiresAt ||
+          user.subscriptionExpiresAt >= new Date());
+
+      if (subscribed) {
+        // Garder les 5 plus anciennes, supprimer le reste.
+        const monitors = await this.prisma.userMonitor.findMany({
+          where: { userId: id },
+          orderBy: { createdAt: 'asc' },
+          select: { id: true, sourceId: true },
+        });
+        const toDelete = monitors.slice(5);
+        for (const monitor of toDelete) {
+          await this.prisma.userMonitor.delete({ where: { id: monitor.id } });
+          const remaining = await this.prisma.userMonitor.count({
+            where: { sourceId: monitor.sourceId },
+          });
+          if (remaining === 0) {
+            await this.prisma.source
+              .delete({ where: { id: monitor.sourceId } })
+              .catch(() => undefined);
+          }
+        }
+      } else {
+        // Appliquer la règle expiré : garder la plus ancienne active, pauser le reste.
+        const monitors = await this.prisma.userMonitor.findMany({
+          where: { userId: id },
+          orderBy: { createdAt: 'asc' },
+          select: { id: true, isActive: true },
+        });
+        const active = monitors.filter((m) => m.isActive);
+        if (active.length > 1) {
+          const keepId = active[0].id;
+          await this.prisma.userMonitor.updateMany({
+            where: { userId: id, isActive: true, id: { not: keepId } },
+            data: { isActive: false },
+          });
+        }
+      }
+    }
+
+    return updated;
   }
 
   /** Bascule en EXPIRED tous les abonnements ACTIVE arrivés à échéance. */
