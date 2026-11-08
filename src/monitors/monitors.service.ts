@@ -57,6 +57,12 @@ export class MonitorsService {
     }));
   }
 
+  async adminListForUser(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('Utilisateur introuvable.');
+    return this.list(user);
+  }
+
   /**
    * Suggestions pour le champ URL de « Nouvelle surveillance » : pages et
    * groupes déjà connus, filtrés sur le nom et l'URL, en excluant les sources
@@ -528,6 +534,37 @@ export class MonitorsService {
     }
 
     return { deleted: true, id };
+  }
+
+  async adminCreateForUser(userId: string, dto: CreateMonitorDto) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('Utilisateur introuvable.');
+    return this.create(user, dto);
+  }
+
+  async adminUpdateForUser(userId: string, id: string, dto: UpdateMonitorDto) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('Utilisateur introuvable.');
+    // Vérifier que le monitor appartient bien à cet utilisateur.
+    const monitor = await this.prisma.userMonitor.findUnique({ where: { id } });
+    if (!monitor || monitor.userId !== userId) throw new NotFoundException('Surveillance introuvable.');
+    return this.update(user, id, dto);
+  }
+
+  async adminRemoveForUser(userId: string, id: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('Utilisateur introuvable.');
+    const monitor = await this.prisma.userMonitor.findUnique({ where: { id } });
+    if (!monitor || monitor.userId !== userId) throw new NotFoundException('Surveillance introuvable.');
+    return this.remove(user, id);
+  }
+
+  async adminReactivateForUser(userId: string, id: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('Utilisateur introuvable.');
+    const monitor = await this.prisma.userMonitor.findUnique({ where: { id } });
+    if (!monitor || monitor.userId !== userId) throw new NotFoundException('Surveillance introuvable.');
+    return this.reactivate(user, id);
   }
 
   /** Vue admin : chaque source avec le nombre d'utilisateurs et toutes les
