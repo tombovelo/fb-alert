@@ -38,6 +38,16 @@ export class MonitorsController {
     return this.monitors.suggestSources(user, query.q);
   }
 
+  @Get('admin/users/:userId/sources/suggest')
+  @Roles(Role.ADMIN)
+  @UseGuards(RolesGuard)
+  adminSuggestSourcesForUser(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Query() query: SuggestSourcesQueryDto,
+  ) {
+    return this.monitors.adminSuggestSourcesForUser(userId, query.q);
+  }
+
   @Get('admin/users/:userId')
   @Roles(Role.ADMIN)
   @UseGuards(RolesGuard)

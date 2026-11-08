@@ -113,6 +113,12 @@ export class MonitorsService {
       }));
   }
 
+  async adminSuggestSourcesForUser(userId: string, rawQuery?: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('Utilisateur introuvable.');
+    return this.suggestSources(user, rawQuery);
+  }
+
   async create(user: User, dto: CreateMonitorDto) {
     // L'admin n'est soumis à aucune limite d'abonnement.
     if (user.role !== 'ADMIN') {
