@@ -53,6 +53,10 @@ export class MonitorsService {
 
     return rows.map(({ _count, ...monitor }) => ({
       ...monitor,
+      keywords: monitor.keywords ?? [],
+      characteristics: monitor.characteristics ?? [],
+      locations: monitor.locations ?? [],
+      negativeKeywords: monitor.negativeKeywords ?? [],
       matchedCount: _count.matchedPosts,
     }));
   }
@@ -208,7 +212,13 @@ export class MonitorsService {
       });
       // Rattrapage des publications déjà stockées pour ne rien rater.
       this.analyzer.scheduleBackfill(created.id);
-      return created;
+      return {
+        ...created,
+        keywords: created.keywords ?? [],
+        characteristics: created.characteristics ?? [],
+        locations: created.locations ?? [],
+        negativeKeywords: created.negativeKeywords ?? [],
+      };
     } catch (err) {
       // Course : ce même moniteur a été créé entre-temps →409 propre.
       if ((err as { code?: string }).code === 'P2002') {
@@ -415,7 +425,13 @@ export class MonitorsService {
       this.analyzer.scheduleBackfill(id);
     }
 
-    return monitor;
+    return {
+      ...monitor,
+      keywords: monitor.keywords ?? [],
+      characteristics: monitor.characteristics ?? [],
+      locations: monitor.locations ?? [],
+      negativeKeywords: monitor.negativeKeywords ?? [],
+    };
   }
 
   /**
@@ -522,7 +538,14 @@ export class MonitorsService {
     });
     if (!updated) throw new NotFoundException('Surveillance introuvable.');
     const { _count, ...rest } = updated;
-    return { ...rest, matchedCount: _count.matchedPosts };
+    return {
+      ...rest,
+      keywords: rest.keywords ?? [],
+      characteristics: rest.characteristics ?? [],
+      locations: rest.locations ?? [],
+      negativeKeywords: rest.negativeKeywords ?? [],
+      matchedCount: _count.matchedPosts,
+    };
   }
 
   async remove(user: User, id: string) {
