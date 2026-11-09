@@ -26,8 +26,9 @@ export interface AnalysisStats {
 
 type MonitorForAnalysis = UserMonitor & { user: { aiEnabled: boolean } };
 
-const BACKFILL_DAYS = 30;
 const BACKFILL_BATCH_SIZE = 200;
+/** Valeur par défaut si POST_RETENTION_DAYS est absente/invalide. */
+const BACKFILL_DAYS_DEFAULT = 30;
 
 @Injectable()
 export class AnalyzerService implements OnModuleInit, OnModuleDestroy {
@@ -69,6 +70,15 @@ export class AnalyzerService implements OnModuleInit, OnModuleDestroy {
       this.config.get('REDIS_AI_CACHE_TTL_DAYS') ?? AI_CACHE_TTL_DAYS_DEFAULT,
     );
     return Math.max(60, Math.round(days * 86_400));
+  }
+
+  /**
+   * Profondeur du rattrapage : on réutilise POST_RETENTION_DAYS pour rester
+   * aligné avec la suppression (inutile de relire des posts déjà purgés).
+   */
+  private get backfillDays(): number {
+    const raw = Number.parseInt(this.config.get('POST_RETENTION_DAYS') ?? '', 10);
+    return Number.isFinite(raw) && raw > 0 ? raw : BACKFILL_DAYS_DEFAULT;
   }
 
   /**
@@ -349,9 +359,10 @@ export class AnalyzerService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Analyse les publications déjà stockées (30 derniers jours) de la source
-   * d'un monitor, avec le même traitement que le scraping normal. Une demande
-   * plus récente pour le même monitor annule celle-ci (critères changés).
+   * Analyse les publications déjà stockées (POST_RETENTION_DAYS derniers jours)
+   * de la source d'un monitor, avec le même traitement que le scraping normal.
+   * Une demande plus récente pour le même monitor annule celle-ci (critères
+   * changés).
    */
   async backfillMonitor(monitorId: string, generation: number): Promise<void> {
     const monitor = await this.prisma.userMonitor.findUnique({
@@ -361,7 +372,7 @@ export class AnalyzerService implements OnModuleInit, OnModuleDestroy {
     if (!monitor || !monitor.isActive) return;
     if (this.backfillGeneration.get(monitorId) !== generation) return;
 
-    const cutoff = new Date(Date.now() - BACKFILL_DAYS * 24 * 60 * 60 * 1000);
+    const cutoff = new Date(Date.now() - this.backfillDays * 24 * 60 * 60 * 1000);
     const stats: AnalysisStats = {
       total: 0,
       alreadySeen: 0,
