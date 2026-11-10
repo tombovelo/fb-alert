@@ -18,8 +18,8 @@ export class RetentionService {
     private readonly config: ConfigService,
   ) {}
 
-  /** Chaque nuit à 4 h 30, heure de Madagascar. */
-  @Cron('30 4 * * *', { timeZone: 'Indian/Antananarivo' })
+  /** Chaque nuit à 4 h 35, heure de Madagascar. */
+  @Cron('35 4 * * *', { timeZone: 'Indian/Antananarivo' })
   async cleanupCron() {
     if (this.config.get('RETENTION_ENABLED') === 'false') return;
     if (this.running) return;
