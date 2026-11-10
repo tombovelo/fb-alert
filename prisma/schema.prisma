@@ -95,6 +95,8 @@ model Source {
 
   monitors       UserMonitor[]
   processedPosts ProcessedPost[]
+
+  @@index([status])
 }
 
 model UserMonitor {
@@ -143,6 +145,8 @@ model ProcessedPost {
   favorites     Favorite[]
 
   @@index([sourceId, createdAt])
+  @@index([createdAt])
+  @@index([publishedAt, createdAt])
 }
 
 model Favorite {
@@ -155,6 +159,8 @@ model Favorite {
 
   @@unique([userId, postId])
   @@index([userId])
+  @@index([userId, createdAt])
+  @@index([postId])
 }
 
 model PostAnalysis {
@@ -187,6 +193,7 @@ model MatchedPost {
 
   @@unique([processedPostId, userMonitorId])
   @@index([userMonitorId])
+  @@index([userMonitorId, createdAt])
 }
 
 model Notification {
@@ -203,6 +210,7 @@ model Notification {
   createdAt     DateTime            @default(now())
 
   @@index([userId, createdAt])
+  @@index([matchedPostId])
 }
 
 model FacebookEntityName {
