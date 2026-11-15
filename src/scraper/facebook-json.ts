@@ -1,4 +1,9 @@
 import { createHash } from 'crypto';
+import {
+  isPlausiblePrice,
+  parseLoosePriceNumber,
+  selectPrice,
+} from '../common/price-parser';
 import { ScrapedCandidate } from './scraper.types';
 
 const ID_KEYS = ['post_id', 'story_id', 'postID', 'post_id_str'];
@@ -57,22 +62,6 @@ const IMAGE_KEYS = [
   'thumbnailUrl',
   'thumbnail_uri',
 ];
-
-// Devise explicite requise (avec \b pour ne pas avaler "300 articles").
-const CURRENCY_WORDS =
-  '(?:fcfa|f\\s?cfa|cfa|xof|xaf|gnf|mga|fmg|ar|eur|usd|dinars?|francs?|qar|sar|ngn|dh|mad|da)\\b';
-const CURRENCY_SYMBOLS = '(?:€|\\$)';
-const CURRENCY_RE = new RegExp(
-  '(\\d{1,3}(?:[ .\\u00A0]\\d{3})+(?:[.,]\\d{1,2})?|\\d+(?:[.,]\\d{1,2})?)\\s*(?:' +
-    CURRENCY_WORDS +
-    '|' +
-    CURRENCY_SYMBOLS +
-    ')',
-  'i',
-);
-const PLAIN_NUMBER_RE =
-  /(\b\d{1,3}(?:[ .\u00A0,]\d{3})+(?:[.,]\d{1,2})?\b|\b\d+(?:[.,]\d{1,2})?\b)/;
-const GROUPED_NUMBER_RE = /(\b\d{1,3}(?:[ .\u00A0,]\d{3})+(?:[.,]\d{1,2})?\b)/;
 
 const ANTI_XSS_PREFIX = 'for (;;);';
 
@@ -219,15 +208,17 @@ export function normalizePostId(raw: string | undefined): string | undefined {
 }
 
 export function parsePrice(input: unknown): number | undefined {
-  if (typeof input === 'number' && Number.isFinite(input) && input > 0) {
-    return input;
+  if (typeof input === 'number') {
+    if (!Number.isFinite(input) || input <= 0) return undefined;
+    return isPlausiblePrice(input) ? input : undefined;
   }
   if (typeof input !== 'string') return undefined;
   const text = input.replace(/\u00A0/g, ' ');
-  const match = text.match(CURRENCY_RE) ?? text.match(PLAIN_NUMBER_RE);
-  if (!match?.[1]) return undefined;
-  const numeric = normalizeNumber(match[1]);
-  return numeric > 0 ? numeric : undefined;
+  const selected = selectPrice(text);
+  if (selected !== null && selected > 0) return selected;
+  const loose = parseLoosePriceNumber(text);
+  if (loose !== null && loose > 0 && isPlausiblePrice(loose)) return loose;
+  return undefined;
 }
 
 /**
@@ -236,34 +227,8 @@ export function parsePrice(input: unknown): number | undefined {
  * confondre les dates, numéros de version ou identifiants avec un prix.
  */
 export function parsePriceFromText(raw: string): number | undefined {
-  const text = raw.replace(/\u00A0/g, ' ');
-  const currency = text.match(CURRENCY_RE);
-  if (currency?.[1]) return normalizeNumber(currency[1]);
-
-  const grouped = text.match(GROUPED_NUMBER_RE);
-  if (grouped?.[1]) {
-    const numeric = normalizeNumber(grouped[1]);
-    return numeric > 0 ? numeric : undefined;
-  }
-  return undefined;
-}
-
-function normalizeNumber(raw: string): number {
-  let value = raw.replace(/[\s\u00A0]/g, '');
-  if (value.includes(',') && value.includes('.')) {
-    value = value.lastIndexOf(',') > value.lastIndexOf('.')
-      ? value.replace(/\./g, '').replace(',', '.')
-      : value.replace(/,/g, '');
-  } else if (value.includes(',')) {
-    const parts = value.split(',');
-    value = parts.length === 2 && parts[1].length <= 2
-      ? value.replace(',', '.')
-      : value.replace(/,/g, '');
-  } else if (/\.\d{3}$/.test(value)) {
-    value = value.replace(/\./g, '');
-  }
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
+  const price = selectPrice(raw.replace(/\u00A0/g, ' '));
+  return price !== null ? price : undefined;
 }
 
 /**
@@ -433,12 +398,13 @@ function firstNumber(
 ): number | undefined {
   for (const key of keys) {
     const value = obj[key];
-    if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
-      return value;
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      if (value === 0) return 0;
+      if (value > 0 && isPlausiblePrice(value)) return value;
     }
     if (typeof value === 'string') {
       const parsed = parsePrice(value);
-      if (parsed) return parsed;
+      if (parsed !== undefined) return parsed;
     }
     if (value && typeof value === 'object') {
       const nested = deepFindNumber(value, 3);
