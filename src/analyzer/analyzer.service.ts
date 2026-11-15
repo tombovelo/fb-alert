@@ -5,7 +5,8 @@ import { Source, UserMonitor } from '@prisma/client';
 import IORedis from 'ioredis';
 import { PrismaService } from '../prisma/prisma.service';
 import { ScrapedPost } from '../scraper/scraper.types';
-import { AiAnalysis, AiService, detectPrice, looksLikePhone } from './ai.service';
+import { isPlausiblePrice, selectPrice } from '../common/price-parser';
+import { AiAnalysis, AiService, looksLikePhone } from './ai.service';
 import { matchesKeywords } from './keyword-filter';
 
 export const SEEN_KEY_PREFIX = 'fb:seen:';
@@ -255,23 +256,20 @@ export class AnalyzerService implements OnModuleInit, OnModuleDestroy {
         // Réponse brute stockée (avant fusion de prix, propre à ce post).
         await this.writeAiCache(cacheKey, analysis);
       }
-      // Prix final : le plus grand nombre détecté (IA ou regex locale),
-      // les numéros de téléphone sont écartés.
       const iaPrice =
-        analysis.extractedPrice !== null && !looksLikePhone(analysis.extractedPrice)
+        analysis.extractedPrice !== null &&
+        analysis.extractedPrice > 0 &&
+        !looksLikePhone(analysis.extractedPrice) &&
+        isPlausiblePrice(analysis.extractedPrice)
           ? analysis.extractedPrice
           : null;
-      const localPrice = detectPrice(text);
-      analysis.extractedPrice =
-        iaPrice !== null && localPrice !== null
-          ? Math.max(iaPrice, localPrice)
-          : (iaPrice ?? localPrice);
+      analysis.extractedPrice = selectPrice(text) ?? iaPrice;
     } else {
       // Interrupteur IA désactivé : le filtre mots-clés suffit, prix extrait
       // localement, sans résumé ni confiance.
       analysis = {
         isMatch: true,
-        extractedPrice: detectPrice(text),
+        extractedPrice: selectPrice(text),
         summary: null,
         confidence: null,
       };

@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { isPlausiblePrice, selectPrice } from '../common/price-parser';
 
 export interface AiCriteria {
   keywords: string[];
@@ -52,12 +53,21 @@ export function parseAiAnalysis(payload: string): AiAnalysis {
       ? obj.confidence
       : 0;
 
+  const rawPrice =
+    typeof obj.extractedPrice === 'number' && Number.isFinite(obj.extractedPrice)
+      ? obj.extractedPrice
+      : null;
+  const extractedPrice =
+    rawPrice !== null &&
+    rawPrice > 0 &&
+    !looksLikePhone(rawPrice) &&
+    isPlausiblePrice(rawPrice)
+      ? rawPrice
+      : null;
+
   return {
     isMatch: obj.isMatch,
-    extractedPrice:
-      typeof obj.extractedPrice === 'number' && Number.isFinite(obj.extractedPrice)
-        ? obj.extractedPrice
-        : null,
+    extractedPrice,
     summary: typeof obj.summary === 'string' ? obj.summary.slice(0, 500) : '',
     confidence: Math.min(1, Math.max(0, confidenceRaw)),
   };
@@ -86,11 +96,6 @@ export function looksLikePhone(value: number): boolean {
   return false;
 }
 
-/** Masque les numéros de téléphone du texte avant l'extraction des prix. */
-function maskPhones(text: string): string {
-  return text.replace(new RegExp(MG_PHONE_SOURCE, 'g'), ' ');
-}
-
 /** Numéro de téléphone malgache trouvé dans le texte, normalisé « 034 12 345 67 ». */
 export function detectPhone(text: string): string | null {
   const match = new RegExp(MG_PHONE_SOURCE).exec(text);
@@ -99,51 +104,9 @@ export function detectPhone(text: string): string | null {
   return `0${prefix} ${a} ${b} ${c}`;
 }
 
-/**
- * Convertit un montant écrit à la main en nombre : « 100,000 » et
- * « 1 200 000 » sont des milliers, « 1,5 » reste une décimale.
- */
-function parsePriceNumber(raw: string): number | null {
-  let value = raw.replace(/[\s\u00A0]/g, '');
-  if (/^\d{1,3}(?:,\d{3})+$/.test(value)) {
-    value = value.replace(/,/g, '');
-  } else if (/^\d{1,3}(?:\.\d{3})+$/.test(value)) {
-    value = value.replace(/\./g, '');
-  } else {
-    value = value.replace(',', '.');
-  }
-  const parsed = Number.parseFloat(value);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
-}
-
-/** Prix candidats : montants avec devise ou nombres groupés (100,000 / 1 200 000). */
-function priceCandidates(text: string): number[] {
-  const clean = maskPhones(text);
-  const patterns = [
-    /(\d[\d\s.,]{0,14})\s*(ariary|ar|€|euros?|\$|usd|mga)(?![a-z])/gi,
-    /(€|usd|\$|euros?|mga|ariary)\s*(\d[\d\s.,]{0,14})/gi,
-    /(?:^|[^a-z])ar\.?\s*(\d[\d\s.,]{0,14})/gi,
-    /(\d{1,3}(?:[\s.,\u00A0]\d{3})+)/g,
-  ];
-  const values: number[] = [];
-  for (const pattern of patterns) {
-    for (const match of clean.matchAll(pattern)) {
-      const raw = /^\d/.test(match[1] ?? '') ? match[1] : match[2];
-      if (!raw) continue;
-      const value = parsePriceNumber(raw);
-      if (value === null) continue;
-      if (looksLikePhone(value)) continue;
-      values.push(value);
-    }
-  }
-  return values;
-}
-
-/** Prix d'une annonce : le plus grand montant (avec devise ou groupé) du texte. */
+/** Prix d'une annonce selon les règles de sélection locales. */
 export function detectPrice(text: string): number | null {
-  const values = priceCandidates(text);
-  if (values.length === 0) return null;
-  return Math.max(...values);
+  return selectPrice(text);
 }
 
 @Injectable()
@@ -355,7 +318,7 @@ export class AiService {
       '',
       'Règles :',
       '- isMatch : true uniquement si la publication correspond aux critères (pertinente et non exclue).',
-      '- extractedPrice : prix trouvé dans le texte, nombre brut sans devise ; null si absent.',
+      '- extractedPrice : prix fiable en ariary (FMG divisé par 5), sans devise ; priorité au prix au m², sinon au plus petit prix. Exclure caution, frais de visite/commission, téléphones, IP, liens et surfaces. null si aucun prix fiable.',
       '- summary : résumé factuel en une phrase, 300 caractères maximum. Si la publication contient un contact de la personne (téléphone, email, WhatsApp), termine le résumé par ce contact.',
       '- confidence : valeur comprise entre 0 et 1.',
     ].join('\n');

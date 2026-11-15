@@ -105,7 +105,7 @@ export class ScrapingWorkerService implements OnModuleInit, OnModuleDestroy {
           update: {
             rawContent: post.text,
             publishedAt: post.publishedAt,
-            extractedPrice: post.price,
+            extractedPrice: post.price ?? null,
             url: post.url,
             author: post.author,
             title: post.title,
@@ -122,7 +122,7 @@ export class ScrapingWorkerService implements OnModuleInit, OnModuleDestroy {
             origin: post.origin,
             rawContent: post.text,
             publishedAt: post.publishedAt,
-            extractedPrice: post.price,
+            extractedPrice: post.price ?? null,
           },
         });
         saved += 1;

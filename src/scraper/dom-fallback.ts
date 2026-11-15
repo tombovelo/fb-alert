@@ -190,7 +190,7 @@ async function extractMarketplace(
 }
 
 const FREE_TEXT_RE =
-  /^(?:gratuit(?:e)?|free|none)\b|^0\s*(?:\$|€|usd|fcfa|f\s?cfa|xof|xaf)/i;
+  /^(?:gratuit(?:e)?|free|none)\b|^0\s*(?:\$|€|usd|fcfa|f\s?cfa|xof|xaf|ar|ariary|mga|fmg)\b/i;
 
 export function isFreeText(raw: string): boolean {
   const text = raw.trim();
