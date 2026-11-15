@@ -318,7 +318,7 @@ export class AiService {
       '',
       'Règles :',
       '- isMatch : true uniquement si la publication correspond aux critères (pertinente et non exclue).',
-      '- extractedPrice : prix fiable en ariary (FMG divisé par 5), sans devise ; priorité au prix au m², sinon au plus petit prix. Exclure caution, frais de visite/commission, téléphones, IP, liens et surfaces. null si aucun prix fiable.',
+      '- extractedPrice : prix fiable en ariary (FMG divisé par 5 ; M/ML = million), sans devise ; priorité au prix au m², sinon au plus petit prix. Exclure caution, frais de visite/commission, téléphones, IP, liens et surfaces. null si aucun prix fiable.',
       '- summary : résumé factuel en une phrase, 300 caractères maximum. Si la publication contient un contact de la personne (téléphone, email, WhatsApp), termine le résumé par ce contact.',
       '- confidence : valeur comprise entre 0 et 1.',
     ].join('\n');

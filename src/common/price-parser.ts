@@ -58,7 +58,7 @@ const SCALE_RE = new RegExp(
   'gi',
 );
 const M_RE = new RegExp(
-  String.raw`(?<!\d)(\d+(?:[.,]\d+)?)\s*[mM](?!\s*[²2](?![0-9]))(?:\s*(\d{1,3})(?!\d))?(?!\s*[²2])(?!\s*(?:mois|m[eè]tres?|metres?|minutes?|mm|cm)\b)(?=\s*(?:${CURRENCY_SOURCE})(?![a-z])|[^a-zA-Z]|$)`,
+  String.raw`(?<!\d)(\d+(?:[.,]\d+)?)\s*[mM](?:[lL])?(?!\s*[²2](?![0-9]))(?:\s*(\d{1,3})(?!\d))?(?!\s*[²2])(?!\s*(?:mois|m[eè]tres?|metres?|minutes?|mm|cm)\b)(?=\s*(?:${CURRENCY_SOURCE})(?![a-z])|[^a-zA-Z]|$)`,
   'gi',
 );
 
@@ -305,6 +305,8 @@ export function extractPriceCandidates(text: string): PriceCandidate[] {
     const index = match.index ?? 0;
     const end = index + match[0].length;
     const currency = currencyAt(masked, end);
+    const lowercaseMl = /ml/.test(match[0]) && !/[A-Z]/.test(match[0]);
+    if (lowercaseMl && !currency) continue;
     if (!currency) {
       const beforeContext = masked
         .slice(Math.max(0, index - 20), index)
