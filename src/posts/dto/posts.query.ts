@@ -20,6 +20,11 @@ export class PostsQueryDto {
   from?: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(1024)
+  cursor?: string;
+
+  @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)

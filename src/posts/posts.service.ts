@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { User } from '@prisma/client';
 import { Prisma } from '@prisma/client';
 import { entityUrlFromPost } from '../common/facebook-url';
+import { decodeNewsCursor, encodeNewsCursor } from '../common/pagination';
 import { PrismaService } from '../prisma/prisma.service';
 import { FavoritesService } from '../favorites/favorites.service';
 import { PostsQueryDto } from './dto/posts.query';
@@ -16,6 +17,7 @@ export class PostsService {
   async list(user: User, query: PostsQueryDto) {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
+    const cursor = query.cursor ? decodeNewsCursor(query.cursor) : null;
     const q = query.q?.trim();
 
     // Surveillances en pause : date de mise en pause (« dernière modification »
@@ -68,14 +70,30 @@ export class PostsService {
       });
     }
 
+    if (cursor) {
+      conditions.push({
+        OR: [
+          { publishedAt: { lt: cursor.publishedAt } },
+          {
+            publishedAt: cursor.publishedAt,
+            createdAt: { lt: cursor.createdAt },
+          },
+          {
+            publishedAt: cursor.publishedAt,
+            createdAt: cursor.createdAt,
+            id: { lt: cursor.id },
+          },
+        ],
+      });
+    }
+
     const where: Prisma.ProcessedPostWhereInput = { AND: conditions };
 
-    const total = await this.prisma.processedPost.count({ where });
-    const items = await this.prisma.processedPost.findMany({
+    const rows = await this.prisma.processedPost.findMany({
       where,
       orderBy: [{ publishedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
-      skip: (page - 1) * limit,
-      take: limit,
+      skip: cursor ? undefined : (page - 1) * limit,
+      take: limit + 1,
       select: {
         id: true,
         title: true,
@@ -90,6 +108,18 @@ export class PostsService {
         source: { select: { id: true, type: true, url: true, name: true } },
       },
     });
+
+    const hasMore = rows.length > limit;
+    const items = hasMore ? rows.slice(0, limit) : rows;
+    const last = items[items.length - 1];
+    const nextCursor =
+      hasMore && last?.publishedAt
+        ? encodeNewsCursor({
+            publishedAt: last.publishedAt,
+            createdAt: last.createdAt,
+            id: last.id,
+          })
+        : null;
 
     // Nom réel du groupe/page propriétaire (cache des entités naviguées).
     const entityUrls = [
@@ -122,9 +152,8 @@ export class PostsService {
           nameByUrl.get(entityUrlFromPost(item.url) ?? '') ?? null,
         favorited: favorited.has(item.id),
       })),
-      total,
-      page,
-      pages: Math.max(1, Math.ceil(total / limit)),
+      hasMore,
+      nextCursor,
     };
   }
 }
