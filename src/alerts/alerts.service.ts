@@ -8,6 +8,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { detectPhone } from '../analyzer/ai.service';
 import { entityUrlFromPost } from '../common/facebook-url';
+import { decodeAlertCursor, encodeAlertCursor } from '../common/pagination';
 import { FavoritesService } from '../favorites/favorites.service';
 import { AlertsQueryDto } from './dto/alerts.query';
 
@@ -47,6 +48,7 @@ export class AlertsService {
   async list(user: User, query: AlertsQueryDto) {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
+    const cursor = query.cursor ? decodeAlertCursor(query.cursor) : null;
     const q = query.q?.trim();
 
     // Surveillances en pause : date de mise en pause (coupure, comme News).
@@ -96,42 +98,78 @@ export class AlertsService {
       ...(search ? [search] : []),
     ];
 
+    if (cursor) {
+      conditions.push({
+        OR: cursor.publishedAt
+          ? [
+              {
+                processedPost: {
+                  publishedAt: { lt: cursor.publishedAt },
+                },
+              },
+              {
+                processedPost: { publishedAt: cursor.publishedAt },
+                id: { lt: cursor.id },
+              },
+              { processedPost: { publishedAt: null } },
+            ]
+          : [
+              {
+                processedPost: { publishedAt: null },
+                id: { lt: cursor.id },
+              },
+            ],
+      });
+    }
+
     const where: Prisma.MatchedPostWhereInput = { AND: conditions };
 
-    const total = await this.prisma.matchedPost.count({ where });
     const rows = await this.prisma.matchedPost.findMany({
       where,
-      orderBy: {
-        processedPost: { publishedAt: { sort: 'desc', nulls: 'last' } },
-      },
-      skip: (page - 1) * limit,
-      take: limit,
+      orderBy: [
+        {
+          processedPost: { publishedAt: { sort: 'desc', nulls: 'last' } },
+        },
+        { id: 'desc' },
+      ],
+      skip: cursor ? undefined : (page - 1) * limit,
+      take: limit + 1,
       include: {
         processedPost: true,
         userMonitor: { include: { source: true } },
       },
     });
 
+    const hasMore = rows.length > limit;
+    const items = hasMore ? rows.slice(0, limit) : rows;
+    const last = items[items.length - 1];
+    const nextCursor =
+      hasMore && last
+        ? encodeAlertCursor({
+            publishedAt: last.processedPost.publishedAt,
+            id: last.id,
+          })
+        : null;
+
     const nameByUrl = await this.resolveEntityNames(
-      rows.map((row) => row.processedPost.url),
+      items.map((row) => row.processedPost.url),
     );
     const favorited = await this.favorites.favoritedSet(
       user.id,
-      rows.map((row) => row.processedPost.id),
+      items.map((row) => row.processedPost.id),
     );
 
     return {
       aiEnabled: user.aiEnabled,
-      items: rows.map((row) =>
+      items: items.map((row) =>
         this.present(
           row,
           nameByUrl.get(entityUrlFromPost(row.processedPost.url) ?? '') ?? null,
           favorited.has(row.processedPost.id),
         ),
       ),
-      total,
-      page,
-      pages: Math.max(1, Math.ceil(total / limit)),
+      hasMore,
+      nextCursor,
     };
   }
 
