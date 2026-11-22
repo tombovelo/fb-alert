@@ -35,7 +35,7 @@ export class MonitorsController {
     @ApiKeyUser() user: User,
     @Query() query: SuggestSourcesQueryDto,
   ) {
-    return this.monitors.suggestSources(user, query.q);
+    return this.monitors.suggestSources(user, query.q, query.limit, query.offset);
   }
 
   @Get('admin/users/:userId/sources/suggest')
@@ -45,7 +45,12 @@ export class MonitorsController {
     @Param('userId', ParseUUIDPipe) userId: string,
     @Query() query: SuggestSourcesQueryDto,
   ) {
-    return this.monitors.adminSuggestSourcesForUser(userId, query.q);
+    return this.monitors.adminSuggestSourcesForUser(
+      userId,
+      query.q,
+      query.limit,
+      query.offset,
+    );
   }
 
   @Get('admin/users/:userId')

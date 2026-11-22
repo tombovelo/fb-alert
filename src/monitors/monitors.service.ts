@@ -72,55 +72,89 @@ export class MonitorsService {
    * groupes déjà connus, filtrés sur le nom et l'URL, en excluant les sources
    * que l'utilisateur surveille déjà. 5 résultats maximum.
    */
-  async suggestSources(user: User, rawQuery?: string) {
+  async suggestSources(
+    user: User,
+    rawQuery?: string,
+    rawLimit?: number,
+    rawOffset?: number,
+  ) {
     const q = (rawQuery ?? '').trim();
-    if (q.length === 0) return [];
+    const limit = Math.max(1, Math.floor(rawLimit ?? 5));
+    const offset = Math.max(0, Math.floor(rawOffset ?? 0));
 
-    const rows = await this.prisma.source.findMany({
-      where: {
-        type: { in: ['PAGE', 'GROUP'] },
-        OR: [
-          { name: { contains: q, mode: 'insensitive' } },
-          { url: { contains: q, mode: 'insensitive' } },
-        ],
-        monitors: { none: { userId: user.id } },
-      },
-      select: {
-        id: true,
-        url: true,
-        type: true,
-        name: true,
-        _count: { select: { monitors: true } },
-      },
-      orderBy: { monitors: { _count: 'desc' } },
-      take: 20,
-    });
+    if (q.length === 0) {
+      return { items: [], hasMore: false, nextOffset: null };
+    }
 
-    const needle = q.toLowerCase();
-    const rank = (name: string | null) => {
-      const value = (name ?? '').toLowerCase();
-      if (value === needle) return 0;
-      if (value.startsWith(needle)) return 1;
-      if (value.includes(needle)) return 2;
-      return 3;
+    const rows = await this.prisma.$queryRaw<
+      {
+        id: string;
+        url: string;
+        type: SourceType;
+        name: string | null;
+        monitorCount: number;
+      }[]
+    >`
+      SELECT
+        s.id,
+        s.url,
+        s.type,
+        s.name,
+        (
+          SELECT COUNT(*)::int
+          FROM "UserMonitor" m
+          WHERE m."sourceId" = s.id
+        ) AS "monitorCount"
+      FROM "Source" s
+      WHERE s.type IN ('PAGE', 'GROUP')
+        AND (
+          position(lower(${q}) in lower(s.name)) > 0
+          OR position(lower(${q}) in lower(s.url)) > 0
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM "UserMonitor" m
+          WHERE m."sourceId" = s.id
+            AND m."userId" = ${user.id}
+        )
+      ORDER BY
+        CASE
+          WHEN lower(coalesce(s.name, '')) = lower(${q}) THEN 0
+          WHEN left(lower(coalesce(s.name, '')), char_length(${q})) = lower(${q}) THEN 1
+          WHEN position(lower(${q}) in lower(coalesce(s.name, ''))) > 0 THEN 2
+          ELSE 3
+        END,
+        "monitorCount" DESC,
+        s.name ASC NULLS LAST,
+        s.id ASC
+      LIMIT ${limit + 1}
+      OFFSET ${offset}
+    `;
+
+    const hasMore = rows.length > limit;
+    const items = rows.slice(0, limit).map((row) => ({
+      id: row.id,
+      url: row.url,
+      type: row.type,
+      name: row.name ?? row.url,
+    }));
+
+    return {
+      items,
+      hasMore,
+      nextOffset: hasMore ? offset + limit : null,
     };
-
-    return rows
-      .slice()
-      .sort((a, b) => rank(a.name) - rank(b.name))
-      .slice(0, 5)
-      .map((row) => ({
-        id: row.id,
-        url: row.url,
-        type: row.type,
-        name: row.name ?? row.url,
-      }));
   }
 
-  async adminSuggestSourcesForUser(userId: string, rawQuery?: string) {
+  async adminSuggestSourcesForUser(
+    userId: string,
+    rawQuery?: string,
+    rawLimit?: number,
+    rawOffset?: number,
+  ) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('Utilisateur introuvable.');
-    return this.suggestSources(user, rawQuery);
+    return this.suggestSources(user, rawQuery, rawLimit, rawOffset);
   }
 
   async create(user: User, dto: CreateMonitorDto) {
