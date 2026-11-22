@@ -31,26 +31,39 @@ export class MonitorsController {
   }
 
   @Get('sources/suggest')
-  suggestSources(
+  async suggestSources(
     @ApiKeyUser() user: User,
     @Query() query: SuggestSourcesQueryDto,
   ) {
-    return this.monitors.suggestSources(user, query.q, query.limit, query.offset);
+    const page = await this.monitors.suggestSources(
+      user,
+      query.q,
+      query.limit,
+      query.offset,
+    );
+    if (query.limit == null && query.offset == null) {
+      return page.items;
+    }
+    return page;
   }
 
   @Get('admin/users/:userId/sources/suggest')
   @Roles(Role.ADMIN)
   @UseGuards(RolesGuard)
-  adminSuggestSourcesForUser(
+  async adminSuggestSourcesForUser(
     @Param('userId', ParseUUIDPipe) userId: string,
     @Query() query: SuggestSourcesQueryDto,
   ) {
-    return this.monitors.adminSuggestSourcesForUser(
+    const page = await this.monitors.adminSuggestSourcesForUser(
       userId,
       query.q,
       query.limit,
       query.offset,
     );
+    if (query.limit == null && query.offset == null) {
+      return page.items;
+    }
+    return page;
   }
 
   @Get('admin/users/:userId')
